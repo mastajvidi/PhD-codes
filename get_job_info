@@ -1,0 +1,218 @@
+/*
+ * To change this license header, choose License Headers in Project Properties.
+ * To change this template file, choose Tools | Templates
+ * and open the template in the editor.
+ */
+package Allocation_InputData;
+import static Allocation_InputData.Main_Program.*;
+
+import static Allocation_InputData.Workload_classes.*;
+import static Allocation_InputData.LNS_classes.*;
+import java.io.File;
+import java.io.FileNotFoundException;
+
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
+import jxl.write.WriteException;
+
+/**
+ *
+ * this code is for my new Allocation model!  in this code I will generate new data suitable for my new model! 
+ * run the Minizinc files in an automatic manner
+ * 
+ */
+public class get_job_info {
+ 
+    // public static int sc= 10;
+     //public static int nbstages=696;
+     //public static int Run=1;
+     //public static int startCustomer=1;
+    // public static int endCustomer=40;
+     
+     
+     public static int timeout=60*60;
+        
+     
+public static void main(String[] args) throws SQLException, ClassNotFoundException, IOException, WriteException { 
+        
+        
+        String[] Model = new String[10];
+        Model[1] = "with spot";
+        Model[2] = "all on demand";
+        Model[3] = "deterministic";
+        Model[4] = "without spot";
+        Model[5] = "deterministic-1scenario";
+                // we have three soloution : 1. initial soloution 2. temporary soloution 3. destroyed soloution 
+        String[] DecisionVar = new String[5];
+        DecisionVar[1] ="LNS-DecisionVariable.dzn";
+        DecisionVar[2] ="LNS_TempSoloution.dzn";
+        DecisionVar[3] ="LNS-DecisionVariable_destroyed.dzn";
+        DecisionVar[4] ="exact-DecisionVariable.dzn";
+        String URL_Minizinc_Model="C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\"+sc+" scenarios\\" + Model[1] +"";
+        // ********************************varaibles to change ************************************
+        String Initial_Sol_select="normal"; // smart , normal
+        String Initial_Sol_Option="Smallusers"; // Smallusers: only on_demand, Bigusers: only reservation;
+        String Destroy_algrthm_option="Normal"; //"Normal" or "StartTime_Random";
+        String My_Approach= "LNS";//"LNS", "Exact"
+        int destroyrate=50;
+        int nbIteration=20;
+        
+
+        // *****************csv file to store result of differnt iteration of LNS algorithm: *********************************
+        
+        String EXACT_csv_filename= "EXACT_results";
+        String EXACT_CSV_URL="C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\1 scenarios\\with spot\\LNS_Results_Iteration\\"+EXACT_csv_filename+".csv";
+         
+        StringBuilder sb = new StringBuilder();
+        StringBuilder sb_exact = new StringBuilder();
+        for ( int op=1; op<=6; op++){// all posiible options for creating csv file! +_+_+_+
+         if (op==1){
+        Destroy_algrthm_option="Normal"; //"Normal" or "StartTime_Random"; 
+         }  
+         if (op==2){
+        Destroy_algrthm_option="StartTime_Random"; //"Normal" or "StartTime_Random"; 
+         }
+        if (op==3){
+        Initial_Sol_Option="Bigusers"; // Smallusers: only on_demand, Bigusers: only reservation;
+        Destroy_algrthm_option="Normal"; //"Normal" or "StartTime_Random"; 
+         }
+        if (op==4){
+        Initial_Sol_Option="Bigusers"; // Smallusers: only on_demand, Bigusers: only reservation;
+        Destroy_algrthm_option="StartTime_Random"; //"Normal" or "StartTime_Random"; 
+         }
+        if (op==5){
+        Initial_Sol_select="smart"; // smart , normal
+        Destroy_algrthm_option="Normal"; //"Normal" or "StartTime_Random"; 
+         }
+         if (op==6){
+        Initial_Sol_select="smart"; // smart , normal
+        Destroy_algrthm_option="StartTime_Random"; //"Normal" or "StartTime_Random"; 
+         }
+         //*************************
+         
+         String LNS_csv_filename = null;
+         if (op!=5 && op!=6){
+            LNS_csv_filename= Initial_Sol_Option+"_"+Initial_Sol_select+"_"+Destroy_algrthm_option;
+         }
+         else if (op==5 || op==6){
+            LNS_csv_filename= Initial_Sol_select+"_"+Destroy_algrthm_option;
+         }
+        String LNS_CSV_URL="C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\1 scenarios\\with spot\\LNS_Results_Iteration\\"+LNS_csv_filename+".csv";
+         // prepare the csv file header:
+        sb.append("User");
+        sb.append(',');
+        for (int it=1; it<=nbIteration;it++){
+        sb.append("Itertion"+ it);
+        sb.append(",");
+        }
+        sb.append('\n');
+        // header of the csv file for exact solutions: 
+        // prepare the csv file header:
+        sb_exact.append("User");
+        sb_exact.append(',');
+        sb_exact.append("#tasks");
+        sb_exact.append(',');
+        sb_exact.append("Tot_duration");
+        sb_exact.append(',');
+        sb_exact.append("Exact_result");
+        sb_exact.append(',');
+        sb_exact.append('\n');
+       
+        for (int customer=startCustomer; customer<=endCustomer; customer++ ){
+            int nbtsks=nbTasks(customer);// number of tasks for each customer
+            if ( nbtsks!=0 ){ // only for small number of tasks
+            sb.append(customer);        sb.append(','); // prepare the csv file for user i
+            System.out.println("************  User "+customer +" ************"+  " ( Total_duration= "+ Total_duration(customer)+ " number of tasks:"+ nbTasks(customer)+ " )" );
+            List<Double> list_Tot_cost= new ArrayList<Double>();
+              
+            double Total_Cost;            // total optimized cost
+            double Initial_Total_Cost=10000; // initial soloution optimal cost
+            //1. Capture Prices (Random or Real VMPrice: random has scenarios and real has no scenarios)
+            //VMprice("Real",Model[1] ); // if we want to get the actual prices for stage 2, the argument should be "Real" otherwise for stage 1 prices: "Random", 
+            // 2. get the workload data
+            stage1AllocationData(customer,nbstages, Model[1],sc);
+            //----LNS starts here: ---------------------------------------------------------
+            if (My_Approach=="LNS"){
+            int loop=0;
+            // 3. create an initial soloution 
+            if (Initial_Sol_select=="normal"){
+            Initial_Soloution(customer, Model[1], Initial_Sol_Option);
+            }
+            if (Initial_Sol_select=="smart"){
+            Initial_Soloution_smart(customer, Model[1]);
+            }
+            
+            String DecisionVariableFile=DecisionVar[1];
+            // the LNS while loop starts: 
+            while (loop<nbIteration){ 
+                // 4  run the minizinc based on the initial soloution that we have and the output is Total_cost
+                // + the new soloutions that stored in LNS_TempSoloution.dzn
+                Total_Cost=runminizinc_LNS(customer, Run,sc  ,Model[1], 1,DecisionVariableFile,timeout);
+                sb.append(Total_Cost); sb.append(",");
+
+                // if the new total cost is less than the initial_total_cost then replace the initial soloution with temp soloution
+                if  (Total_Cost<Initial_Total_Cost){
+                    // so current soloution ( DecisionVar[2] ="LNS_TempSoloution.dzn") is better, so we can assign it as the solution now! 
+                    DecisionVariableFile= DecisionVar[2];
+                    //Initial_Total_Cost=Total_Cost;
+                    //System.out.println(" a better soloution found: "+Total_Cost );
+                    list_Tot_cost.add(Total_Cost);
+                }
+                create_CSV(LNS_CSV_URL ,sb);
+
+                // destroy the solution partially
+                
+                if (Destroy_algrthm_option == "Normal"){
+                    Destroy_Soloution(customer, Model[1] ,DecisionVariableFile, destroyrate,"LNS-DecisionVariable_destroyed.dzn");
+                }else  if (Destroy_algrthm_option== "StartTime_Random"){
+                    Destroy_Soloution_startTime_Based(customer, Model[1] ,DecisionVariableFile, destroyrate,"LNS-DecisionVariable_destroyed.dzn");
+                }
+                // after destroying the soloution, the destroyed soloution is stored in :DecisionVar[3] ="LNS-DecisionVariable_destroyed.dzn";
+                DecisionVariableFile= DecisionVar[3];
+                loop+=1;
+                System.out.println("LNS loop iteration***  "+loop+" total cost found: "+ Total_Cost);
+            }// end of LNS while loop 
+            sb.append('\n');
+            System.out.println("total cost improvement after each iteration:" +list_Tot_cost);
+            }
+            else if (My_Approach=="Exact"){
+                
+                Initial_Soloution_exact(customer, Model[1]);
+                String DecisionVariableFile=DecisionVar[4];// exact-DecisionVariable.dzn
+                Total_Cost=runminizinc_LNS(customer, Run,sc,  Model[1], 1,DecisionVariableFile,timeout);
+                System.out.println("Exact model finished sucessfully, best total cost found: "+ Total_Cost);
+                
+                sb_exact.append(customer);   sb_exact.append(',');
+                sb_exact.append(nbTasks(customer));   sb_exact.append(',');
+                sb_exact.append(Total_duration(customer));   sb_exact.append(',');
+                sb_exact.append(Total_Cost);   sb_exact.append(',');
+                sb_exact.append('\n');
+                
+            }
+            if (My_Approach=="Exact"){
+              create_CSV(EXACT_CSV_URL ,sb_exact);  
+            }
+            //stage1AllocationData(customer, nbstages, Model[1]);
+            //run model  stage2:
+            //runminizinc(customer, Run,  nbstages,  Model[1], 2); // 1 means the first stage model and 2 means the second!  
+            //System.out.println("number of task for user "+customer+": "+  nbtsks);
+            }// end of if nbtasks<=10 loop
+       }//end of user loop
+        System.out.println("csv file is ready for op : "+op);
+        }// end of all csv file options+_+_+_+
+    }
+
+
+public static void create_CSV(String csv_file_URL, StringBuilder csvdata ) throws FileNotFoundException, IOException
+  {     PrintWriter pw = new PrintWriter(new File(csv_file_URL));
+        pw.write(csvdata.toString());
+        pw.close();
+    }
+    
+}// end of my main program
+    
+
+
