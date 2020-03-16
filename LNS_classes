@@ -1,0 +1,779 @@
+package Allocation_InputData;
+
+import static Allocation_InputData.Workload_classes.*;
+//import static Allocation_InputData.get_job_info.*;
+import static Allocation_InputData.Main_Program.*;
+import static Allocation_InputData.tamrin.nbstages;
+import com.opencsv.CSVReader;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.PrintStream;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
+import jxl.write.WriteException;
+
+/**
+ *
+ * I put all the functions related to LNS in this file
+ */
+public class LNS_classes {
+
+    //-------------------------------------------Large Neighbourhood Search Related functions-------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------------------------------
+//*****************************1.Initial soloution****************************
+// this function returns the path where the initial soloution is stored! 
+//   we have two different initial solution currently, one for users with few tasks, one with huge number of tasks! 
+//  Option 1 : Smallusers   option2: Bigusers
+
+    public static void main(String[] args) throws SQLException, ClassNotFoundException, IOException, WriteException {
+//         List<Integer> Done_users = Arrays.asList(2,3,5,6,7,11,12,15,21,23,24,28,30,31,35,38,40,53,57,64,65,66,72,73,76,78,82,85,
+//        86,90,91,92,95,96,98,99,100,101,106,108,109,113,114,117,124,127,134,139,140,148,158,159,161
+//        ,162,163,165,167,168,169,172,174,179,184,186,188,190,191,195,197,209,211,213,214,217,218,224,
+//        230,238,242,246,249,257,260,263,267,268,269,270,272,273,275,285);
+//         for (int customer=1; customer<=100;customer++){
+//             if (nbTasks(customer)!=0 && Total_duration(customer)+ Total_duration(customer)<=1000 && !(Done_users.contains(customer)) ){
+//             System.out.println("user: "+customer+" number of tasks, total duration= ("+ nbTasks(customer)+", "+Total_duration(customer)+")");
+//             }}
+        //       Initial_Soloution_Greedy(11,  "with spot" ) ;
+
+    }
+
+    public static String Initial_Soloution(int customerid, String ModelType, String Option, int sc) throws FileNotFoundException, IOException {
+        String URL_Minizinc_Model = "C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\" + sc + " scenarios\\" + ModelType + "";
+        int nbTasks = nbTasks(customerid);               //number of tasks:
+        Object[] getarray = stage1AllocationData(customerid, nbstages, ModelType,sc);
+        int[][] subTime = (int[][]) getarray[0];
+        int[][] Deadline = (int[][]) getarray[1];
+      //------------------------------decision variable 2: SingleVmAlloc--------------------------------------------------
+        // for the Vm selection, I am chooseing the biggest VM for all the stages that should not be neccessarily zero. 
+        String URL_to_store_the_file = URL_Minizinc_Model + "\\LNS-DecisionVariable.dzn";
+        PrintStream outputInitialSol = new PrintStream(new File(URL_to_store_the_file));
+        String[] decisionVariable = new String[4];
+        decisionVariable[1] = "SingleVmAlloc = array3d(SCENARIOS,Task ,TIME ,[";
+        decisionVariable[2] = "VMOption = array3d(SCENARIOS,Task ,TIME ,[";
+        decisionVariable[3] = "ResPlan = array3d(SCENARIOS,Task ,TIME ,[";
+        for (int decisionVar = 1; decisionVar <= 3; decisionVar++) {
+            outputInitialSol.println(decisionVariable[decisionVar]);
+            for (int s = 1; s <= sc; s++) {
+                for (int t = 1; t <= nbTasks; t++) {
+                    for (int stage = 1; stage <= nbstages; stage++) {
+                        if (stage >= subTime[s][t] && Deadline[s][t] >= stage) {
+
+                            if (decisionVar == 1) {
+                                outputInitialSol.print(2 + ",");
+                            }
+                            if (decisionVar == 2) {
+                                if (Option == "Smallusers") {// if we do not have lots of Tasks, go for All_on_demand
+                                    outputInitialSol.print(2 + ",");
+                                } else { // if we do have lots of Tasks, go for All_Reservation
+                                    outputInitialSol.print(1 + ",");
+                                }
+                            }
+                            if (decisionVar == 3) {// for the resplan, since we only have on-demand, put them all zero
+                                if (Option == "Smallusers") { // if we do not have lots of Tasks, go for All_on_demand, so no resoption! 
+                                    outputInitialSol.print(0 + ",");
+                                } else { // if we do have lots of Tasks, go for All_Reservation, and No upfront! 
+                                    outputInitialSol.print(3 + ",");
+                                }
+                            }
+                        }// end of stages that should not be zero
+                        else // out of the range of start time and deadline, just put zero! 
+                        {
+                            outputInitialSol.print(0 + ",");
+                        }
+                    }
+
+                    outputInitialSol.println();
+                }
+                outputInitialSol.println();
+            }
+            outputInitialSol.println("]);");
+        }
+        outputInitialSol.close();
+        //System.out.println(" Initial Soloution for user* "+ customerid +" *is ready, it is stored in : LNS-DecisionVariable.dzn" );
+        return (URL_to_store_the_file);
+    }// end of function initialSoloution
+
+//*****************************2.Run minizinc for LNS problem****************************
+    public static Float runminizinc_LNS(int customerid, int Run, int sc, String ModelType, int stagenumber, String DecisionVariable, int timeout) throws IOException {
+        //--------------------------------------with spot------------------------------------------------------------
+        String URL_Minizinc_Model = "C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\" + sc + " scenarios\\" + ModelType + "";
+        String Minizinc_File_Name = "mymodel_Stage" + stagenumber + ".mzn";
+        String TempSoloutionUrl = URL_Minizinc_Model + "\\LNS_TempSoloution.dzn";
+        String FinalSoloutionURL = URL_Minizinc_Model + "\\LNS_Final solutions_stage" + stagenumber + "\\LNS_FinalSoloution_User" + customerid + ".dzn";
+        String Total_Cost = "0";
+        // *****************************running the main model (spot)**********************    
+        //includefile fits with the relevant users
+        String NbresFileName = "numberofreservedvms-group" + customerid + ".dzn";
+
+        if (stagenumber == 1) {
+            String includefileURL = URL_Minizinc_Model + "\\includefile.dzn";
+            PrintStream includefileOutput = new PrintStream(new File(includefileURL));
+            includefileOutput.print("include \"Allocation-Data" + customerid + ".dzn\";  include \"" + DecisionVariable + "\";");// data of a specific user
+        }
+        if (stagenumber == 2) {
+            String includefileURL = URL_Minizinc_Model + "\\includefile_stage2.dzn";
+            PrintStream includefileOutput = new PrintStream(new File(includefileURL));
+            includefileOutput.print("include \"Allocation-Data" + customerid + ".dzn\";  include \"" + DecisionVariable + "\";  include  \"" + NbresFileName + "\";");// data of a specific user
+        }
+                // run vmselection model and store the number of reserved vms as an output
+        // CBC solver
+        //String[] RunModelcommand = {"cmd.exe", "/c", "cd \"C:\\Program Files (x86)\\MiniZinc 2\\bin\" && mzncmd.bat && cd \"" + URL_Minizinc_Model + "\"" + " && mzn-cbc -G linear " + Minizinc_File_Name };
+        //Gurobi solver
+        String[] RunModelcommand = {};
+        if (timeout > 0) {
+            RunModelcommand = new String[]{"cmd.exe", "/c", "cd \"C:\\Program Files (x86)\\MiniZinc 2\\bin\" && mzncmd.bat && cd \"" + URL_Minizinc_Model + "\"" + " && mzn-gurobi  -G linear " + Minizinc_File_Name + " --timeout " + timeout};
+        } else if (timeout == 0) {
+            RunModelcommand = new String[]{"cmd.exe", "/c", "cd \"C:\\Program Files (x86)\\MiniZinc 2\\bin\" && mzncmd.bat && cd \"" + URL_Minizinc_Model + "\"" + " && mzn-gurobi  -G linear " + Minizinc_File_Name};
+
+        }
+
+        ProcessBuilder RunModel = new ProcessBuilder(RunModelcommand);
+        RunModel.redirectErrorStream(true); // if this is true, the error will be shown in the output
+        Process p = RunModel.start();
+        String line;
+
+        PrintStream TempSolOut = new PrintStream(new File(TempSoloutionUrl));
+        PrintStream FinalSolOut = new PrintStream(new File(FinalSoloutionURL));
+        BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
+        String ResVmURL = URL_Minizinc_Model + "\\" + NbresFileName;
+        PrintStream ResVmOutput = null;
+        if (stagenumber == 1) {
+
+            ResVmOutput = new PrintStream(new File(ResVmURL));
+        }
+        Total_Cost = r.readLine();
+
+        while (true) {
+            line = r.readLine();
+            if (line == null) {
+                break;
+            }
+            //***** store number of reserved vms into the file********
+            if (line.contentEquals("==========") || line.contentEquals("----------")) {
+                TempSolOut.print("");
+                FinalSolOut.print("");
+
+            }
+            if (line.contains("NumRES")) {
+                if (stagenumber == 1) {
+                    ResVmOutput.println(line);
+                }
+                TempSolOut.println(line);
+                FinalSolOut.println(line);
+            } else {
+                TempSolOut.println(line);
+                FinalSolOut.println(line);
+
+            }
+        }
+        TempSolOut.close();
+        FinalSolOut.close();
+        if (stagenumber == 1) {
+            ResVmOutput.close();
+        }
+
+        System.out.println("minizinc run is completed and the total cost is: " + Total_Cost + " The soloution is stored in : " + TempSoloutionUrl);
+        //}// if stage==1 writing files
+        return Float.parseFloat(Total_Cost);
+    }
+//*****************************3.Destroy part of soloution randomly****************************
+
+    public static void Destroy_Soloution(int customerid, String ModelType, String DecisionvarTodestroy, int destroyRate, String store_File) throws FileNotFoundException, IOException {
+        String URL_Minizinc_Model = "C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\" + sc + " scenarios\\" + ModelType + "";
+        int nbTasks = nbTasks(customerid);               //number of tasks:
+        Object[] getarray = stage1AllocationData(customerid, nbstages, ModelType,sc);
+        int[][] subTime = (int[][]) getarray[0];
+        int[][] Deadline = (int[][]) getarray[1];
+        //------------------------------readfile--------------------------------------
+        String URL_read_Sol = URL_Minizinc_Model + "\\" + DecisionvarTodestroy; //LNS-DecisionVariable.dzn";
+        String SolutionPath = URL_read_Sol;
+        File file = new File(SolutionPath);
+        BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(file)));
+        String URL_store_Sol = URL_Minizinc_Model + "\\" + store_File; //"\\LNS-DecisionVariable_destroyed.dzn";
+        PrintStream outputInitialSol = new PrintStream(new File(URL_store_Sol));
+        String[] decisionVariable = new String[4];
+        decisionVariable[1] = "SingleVmAlloc = array3d(SCENARIOS,Task ,TIME ,[";
+        decisionVariable[2] = "VMOption = array3d(SCENARIOS,Task ,TIME ,[";
+        decisionVariable[3] = "ResPlan = array3d(SCENARIOS,Task ,TIME ,[";
+        //------------------------------decision variables--------------------------------------------------
+        String[] AllDecisions = null;
+        ArrayList<Integer> RandomList = new ArrayList<Integer>();
+        for (int decisionVar = 1; decisionVar <= 3; decisionVar++) {
+            if (decisionVar != 1) {
+                reader.readLine();
+                reader.readLine();
+            }
+            reader.readLine();      // skip the header of matrix: e.e. SingleVmAlloc = array3d(SCENARIOS,Task ,TIME ,[
+            outputInitialSol.println(decisionVariable[decisionVar]);
+            int ListIndex = -1;
+            for (int s = 1; s <= sc; s++) {
+                for (int t = 1; t <= nbTasks; t++) {
+                    AllDecisions = reader.readLine().split(",");
+
+                    for (int stage = 1; stage <= nbstages; stage++) {
+                        if (stage >= subTime[s][t] && stage <= Deadline[s][t]) {
+                            if (decisionVar == 1)// create a random list once (for the first decision variable and use it for other as well! 
+                            {
+                                //int a= binNumber();  // we will randomly choose to either keep the previous soloution or make a decision c=variable again ("_")?
+                                int a = RandomNumber(destroyRate);// create random numbers with destroy rate destroyRate
+                                RandomList.add(a);
+                            }
+                            ListIndex += 1;
+
+                            if (RandomList.get(ListIndex) == 1) { // if the random number is one, keep the previous one
+                                outputInitialSol.print(AllDecisions[stage - 1] + ",");
+                            } else if (RandomList.get(ListIndex) == 0) { // if the random number is zero, change it to "_"
+                                outputInitialSol.print("_" + ",");// if the stage is in a range that it can not be zero, let solver decide for it
+                            }
+                        } else {
+                            outputInitialSol.print(AllDecisions[stage - 1] + ",");
+                        }
+
+                    }
+                    outputInitialSol.println();
+                }
+                outputInitialSol.println();
+            }
+            outputInitialSol.println("]);");
+        }
+        outputInitialSol.close();
+        //System.out.println("the soloution is destroy and stored in "+DecisionvarTodestroy );
+    }
+// another destroy solution, that is working based on the start time .. such that it changes the start time randomly! 
+
+    public static void Destroy_Soloution_startTime_Based(int customerid, String ModelType, String DecisionvarTodestroy, int destroyRate, String store_File) throws FileNotFoundException, IOException {
+        String URL_Minizinc_Model = "C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\" + sc + " scenarios\\" + ModelType + "";
+        int nbTasks = nbTasks(customerid);               //number of tasks:
+        Object[] getarray = stage1AllocationData(customerid, nbstages, ModelType,sc);
+        int[][] subTime = (int[][]) getarray[0];
+        int[][] Deadline = (int[][]) getarray[1];
+        int[][] duration = (int[][]) getarray[2];
+        //------------------------------readfile--------------------------------------
+        String URL_read_Sol = URL_Minizinc_Model + "\\" + DecisionvarTodestroy; //LNS-DecisionVariable.dzn";
+        String SolutionPath = URL_read_Sol;
+        File file = new File(SolutionPath);
+        BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(file)));
+        String URL_store_Sol = URL_Minizinc_Model + "\\" + store_File;//"LNS-DecisionVariable_destroyed.dzn";
+        PrintStream outputInitialSol = new PrintStream(new File(URL_store_Sol));
+        String[] decisionVariable = new String[4];
+        decisionVariable[1] = "SingleVmAlloc = array3d(SCENARIOS,Task ,TIME ,[";
+        decisionVariable[2] = "VMOption = array3d(SCENARIOS,Task ,TIME ,[";
+        decisionVariable[3] = "ResPlan = array3d(SCENARIOS,Task ,TIME ,[";
+        //------------------------------decision variables--------------------------------------------------
+        String[] AllDecisions = null;
+        ArrayList<Integer> RandomList = new ArrayList<Integer>();
+        ArrayList<Integer> startTimeRandom = new ArrayList<Integer>();
+        for (int decisionVar = 1; decisionVar <= 3; decisionVar++) {
+            if (decisionVar != 1) {
+                reader.readLine();
+                reader.readLine();
+            }
+            reader.readLine();      // skip the header of matrix: e.e. SingleVmAlloc = array3d(SCENARIOS,Task ,TIME ,[
+            outputInitialSol.println(decisionVariable[decisionVar]);
+            int ListIndex = -1;
+            for (int s = 1; s <= sc; s++) {
+                for (int t = 1; t <= nbTasks; t++) {
+                    AllDecisions = reader.readLine().split(",");
+                    if (decisionVar == 1)// create a random list once (for the first decision variable and use it for other as well! 
+                    {
+                        int a = RandomNumber(destroyRate);// create random numbers with destroy rate destroyRate
+                        RandomList.add(a);
+                        // we need to assign a start time from possible range! 
+                        startTimeRandom.add(RandomNumberInrange(subTime[s][t], Deadline[s][t] - duration[s][t] + 1));// choose randomly the start time for the task
+                    }
+                    for (int stage = 1; stage <= nbstages; stage++) {
+                        if (stage >= subTime[s][t] && stage <= Deadline[s][t]) {
+                            if (RandomList.get(t - 1) == 1) { // if the random number is one, keep the previous one
+                                outputInitialSol.print(AllDecisions[stage - 1] + ",");
+                            } else if (RandomList.get(t - 1) == 0) {
+                                // if the randomnumber is zero, change it to "_"
+                                if (stage >= startTimeRandom.get(t - 1) && stage <= startTimeRandom.get(t - 1) + duration[s][t] - 1) {
+                                    outputInitialSol.print("_" + ",");
+                                } else {
+                                    outputInitialSol.print("0" + ",");
+                                }
+                            }// end of if case when RandomList.get(t-1)==0
+                        }// end of time range of possible start times! 
+                        else {
+                            outputInitialSol.print(AllDecisions[stage - 1] + ",");
+                        }
+                    }
+                    outputInitialSol.println();
+                }
+                outputInitialSol.println();
+            }
+            outputInitialSol.println("]);");
+        }
+        outputInitialSol.close();
+    }
+
+    public static int RandomNumberInrange(int from, int to) {
+        return (int) (Math.random() * ((to) - (from) + 1) + from);
+
+    }
+// Creare a binary number randomly(1/0)
+
+    public static int binNumber() {
+        Random rg = new Random();
+        int n = rg.nextInt(2);
+        return (n);
+    }
+// this random generator function will destroy with a specific rate 
+
+    public static int RandomNumber(int destroyrate) {
+        double d = Math.random() * 100;
+        if ((d -= 100 - destroyrate) < 0) {
+            return 1;// destroyrate% chance to get 1 picked
+        }
+        if ((d -= destroyrate) < 0) {
+            return 0; // 100-destroyrate% chance to get 0 picked
+        }
+        return 1;
+    }
+// rename file name, such that you first delete the old file and then rename the new file to the old file
+
+    public static void renamefile(String oldName, String NewName) throws IOException {
+        //Old File
+        File oldfile = new File(oldName);
+        //New File
+        File newfile = new File(NewName);
+        // delete the available newfile first then rename the old_file
+        //newfile.delete();
+        Files.deleteIfExists(Paths.get(NewName));
+        /*renameTo() return boolean value
+         * It return true if rename operation is
+         * successful
+         */
+        boolean flag = oldfile.renameTo(newfile);
+        if (flag) {
+            System.out.println("File renamed successfully");
+        } else {
+            System.out.println("Rename operation failed");
+        }
+    }
+
+    public static String Initial_Soloution_exact(int customerid, String ModelType, int sc, Object[] getarray) throws FileNotFoundException, IOException {
+        String URL_Minizinc_Model = "C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\" + sc + " scenarios\\" + ModelType + "";
+        int nbTasks = nbTasks(customerid);               //number of tasks:
+        
+       // Object[] getarray = stage1AllocationData(customerid, nbstages, ModelType,sc);
+        int[][] subTime = (int[][]) getarray[0];
+        int[][] Deadline = (int[][]) getarray[1];
+      //------------------------------decision variable 2: SingleVmAlloc--------------------------------------------------
+        // for the Vm selection, I am chooseing the biggest VM for all the stages that should not be neccessarily zero. 
+        String URL_to_store_the_file = URL_Minizinc_Model + "\\exact-DecisionVariable.dzn";
+        PrintStream outputInitialSol = new PrintStream(new File(URL_to_store_the_file));
+        String[] decisionVariable = new String[4];
+        decisionVariable[1] = "SingleVmAlloc = array3d(1.."+sc+",Task ,TIME ,[";
+        decisionVariable[2] = "VMOption = array3d(1.."+sc+",Task ,TIME ,[";
+        decisionVariable[3] = "ResPlan = array3d(1.."+sc+",Task ,TIME ,[";
+        for (int decisionVar = 1; decisionVar <= 3; decisionVar++) {
+            outputInitialSol.println(decisionVariable[decisionVar]);
+            for (int s = 1; s <= sc; s++) {
+                for (int t = 1; t <= nbTasks; t++) {
+                    for (int stage = 1; stage <= nbstages; stage++) {
+                        if (stage >= subTime[s][t] && Deadline[s][t] >= stage) {
+
+                            outputInitialSol.print("_" + ",");
+
+                        } else {
+                            outputInitialSol.print(0 + ",");
+                        }
+                    }
+                    outputInitialSol.println();
+                }
+                outputInitialSol.println();
+            }
+            outputInitialSol.println("]);");
+        }
+        outputInitialSol.close();
+        System.out.println(" Initial Soloution for user* " + customerid + " *is ready, it is stored in : "+URL_Minizinc_Model+"Exact-DecisionVariable.dzn");
+        return (URL_to_store_the_file);
+    }// end of function initialSoloution    
+
+//   public static int Total_duration(int customerid) throws FileNotFoundException {
+//        Object[] realworkload = Realworkload(customerid, nbstages);
+//            int[] Duration = (int[]) realworkload[4];        //  real Time
+//            int len= Duration.length;
+//            int tot_duration=0;
+//            for (int i=0; i<len;i++){
+//               tot_duration += Duration[i];  
+//            }
+//        return tot_duration;
+//        
+//    }  
+    // find the biggest task based on: Duration, Cpu and Memory
+    public static float Biggest_Task(int customerid, String ModelType, String Return) throws FileNotFoundException, IOException {
+        int maxDuration = 0;
+        float maxCpu = 0;
+        float maxMemory = 0;
+        float Return_item = 0;
+
+        int nbTasks = nbTasks(customerid);     //number of tasks:
+        Object[] getarray = stage1AllocationData(customerid, nbstages, ModelType,sc);
+        int[][] duration = (int[][]) getarray[2];
+        float[][] CPU = (float[][]) getarray[3];
+        float[][] Memory = (float[][]) getarray[4];
+        for (int s = 1; s <= sc; s++) {
+            for (int t = 1; t <= nbTasks; t++) {
+                //System.out.println( " task :" + t+ " duration: " +duration [s][t]+ "(" +CPU[s][t]+","+ Memory[s][t] +")" );
+                if (maxDuration < duration[s][t]) {
+                    maxDuration = duration[s][t];
+                }
+                if (maxCpu < CPU[s][t]) {
+                    maxCpu = CPU[s][t];
+                }
+                if (maxMemory < Memory[s][t]) {
+                    maxMemory = Memory[s][t];
+                }
+            }
+        }
+        if (Return == "Memory") {
+            Return_item = maxMemory;
+        } else if (Return == "Cpu") {
+            Return_item = maxCpu;
+        } else {
+            Return_item = maxDuration;
+        }
+
+        return (float) Return_item;
+    }
+
+///***************************************************************************
+    public static Object NonOveralp_Duration(int customerid, String ModelType, String Return) throws FileNotFoundException, IOException {
+        Object[] outputarray = new Object[3];// output array 
+        int nbTasks = nbTasks(customerid);               //number of tasks:
+        int Tot_Duration = 0; // total non overlap duration
+        List<Integer> non_overlapping_tasks = new ArrayList<Integer>();
+
+        Object[] getarray = stage1AllocationData(customerid, nbstages, ModelType,sc);
+        int[][] subTime = (int[][]) getarray[0];
+        int[][] Deadline = (int[][]) getarray[1];
+        int[][] duration = (int[][]) getarray[2];
+        float[][] CPU = (float[][]) getarray[3];
+        float[][] Memory = (float[][]) getarray[4];
+
+        for (int t = 2; t <= nbTasks; t++) { // start from 2 , because we are using t-1
+            if (Deadline[1][t - 1] < subTime[1][t]) {
+                if (t != 2) {
+                    Tot_Duration += duration[1][t];
+                    non_overlapping_tasks.add(t);
+                } else {
+                    Tot_Duration = duration[1][t] + duration[1][t - 1];
+                    non_overlapping_tasks.add(t - 1);
+                    non_overlapping_tasks.add(t);
+
+                }
+            }
+        }
+        if (nbTasks == 1) { // if we only have one task, then the duration of that task is the nonoveralpping duration
+            Tot_Duration = duration[1][1];
+            non_overlapping_tasks.add(1);
+        }
+        //System.out.println(non_overlapping_tasks);
+        if (Return == "Tot_Duration") {
+            outputarray[1] = Tot_Duration;
+        } else if (Return == "non_overlapping_tasks") {
+            outputarray[1] = non_overlapping_tasks;
+        }
+        return outputarray[1];
+    }
+
+//*****************************************************************
+    public static String Initial_Soloution_smart(int customerid, String ModelType, int sc) throws FileNotFoundException, IOException {
+        float MaxCPU = Biggest_Task(customerid, "with spot", "Cpu");// max required cpu
+        float MaxMem = Biggest_Task(customerid, "with spot", "Memory"); // max required memory
+        int maxDuration = (int) Biggest_Task(customerid, "with spot", "Duration"); // max duration of all tasks of the user
+        int Tot_duration = (int) NonOveralp_Duration(customerid, ModelType, "Tot_Duration");
+        List<Object> non_overlapping_tasks = (List<Object>) NonOveralp_Duration(7, "with spot", "non_overlapping_tasks");
+        //  VM1 and VM2 prices and features
+        double ONdemand_price1 = 0.1;
+        double ONdemand_price2 = 0.4;
+        double Res_price1 = 3;//59; 
+        double Res_price2 = 42;//515;
+        int CPU_VM1 = 2;
+        int Mem_VM1 = 4;
+        int CPU_VM2 = 8;
+        int Mem_VM2 = 15;
+        int VMselection = 2;
+        //***********************
+        double suitable_duration_to_reserve_VM = 0;
+      //if (MaxCPU<=CPU_VM1 && MaxMem<=Mem_VM1  ){// if the max job can be satisfied with the small memory, choose the small one
+        // VMselection=1;
+        //suitable_duration_to_reserve_VM= Res_price1/ONdemand_price1; // if the non overlap total duration is greater than this number then it worth to reserve VM!
+        //}
+        //else if (MaxCPU<=CPU_VM2 && MaxMem<=Mem_VM2  ){
+        //    VMselection=2;
+        //     suitable_duration_to_reserve_VM= Res_price2/ONdemand_price2; 
+        // }
+        // else{
+        //     System.out.println("Error , All available VM's capacity are lower than maximum requirement of the jobs for user"+customerid );
+        // }
+        //**********************
+
+        String URL_Minizinc_Model = "C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\" + sc + " scenarios\\" + ModelType + "";
+        int nbTasks = nbTasks(customerid);               //number of tasks:
+        Object[] getarray = stage1AllocationData(customerid, nbstages, ModelType,sc);
+        int[][] subTime = (int[][]) getarray[0];
+        int[][] Deadline = (int[][]) getarray[1];
+        int[][] duration = (int[][]) getarray[2];
+        float[][] CPU = (float[][]) getarray[3];
+        float[][] Memory = (float[][]) getarray[4];
+      //------------------------------decision variable 2: SingleVmAlloc--------------------------------------------------
+        // for the Vm selection, I am chooseing the biggest VM for all the stages that should not be neccessarily zero. 
+        String URL_to_store_the_file = URL_Minizinc_Model + "\\LNS-DecisionVariable.dzn";
+        PrintStream outputInitialSol = new PrintStream(new File(URL_to_store_the_file));
+        String[] decisionVariable = new String[4];
+        decisionVariable[1] = "SingleVmAlloc = array3d(SCENARIOS,Task ,TIME ,[";
+        decisionVariable[2] = "VMOption = array3d(SCENARIOS,Task ,TIME ,[";
+        decisionVariable[3] = "ResPlan = array3d(SCENARIOS,Task ,TIME ,[";
+      //**** if the total duration without overlap is greater than expected, then reserve for all non overlap tasks
+        //if ((int)Tot_duration>= suitable_duration_to_reserve_VM ){
+
+        for (int decisionVar = 1; decisionVar <= 3; decisionVar++) {
+            outputInitialSol.println(decisionVariable[decisionVar]);
+            for (int s = 1; s <= sc; s++) {
+                for (int t = 1; t <= nbTasks; t++) {
+                    if (CPU[s][t] <= CPU_VM1 && Memory[s][t] <= Mem_VM1) {// if the  job can be satisfied with the small memory, choose the small one
+                        VMselection = 1;
+                        suitable_duration_to_reserve_VM = Res_price1 / ONdemand_price1;
+                    } else if (CPU[s][t] <= CPU_VM2 && Memory[s][t] <= Mem_VM2) {
+                        VMselection = 2;
+                        suitable_duration_to_reserve_VM = Res_price2 / ONdemand_price2;
+                    } else {
+                        System.out.println("Error , All available VM's capacity are lower than maximum requirement of the jobs for user" + customerid);
+                    }
+                    for (int stage = 1; stage <= nbstages; stage++) {
+                        if (stage >= subTime[s][t] && Deadline[s][t] >= stage) {
+
+                            if (decisionVar == 1) {
+                                outputInitialSol.print(VMselection + ",");
+                            }
+
+                            if (decisionVar == 2) {
+                                if ((int) Tot_duration >= suitable_duration_to_reserve_VM) {
+                                    if (non_overlapping_tasks.contains(t)) {// if the task is one of the non overlapping tasks, then reserve
+                                        outputInitialSol.print(1 + ",");
+                                    } else { // otherwise if it has some overlaps, on-demand
+                                        outputInitialSol.print(2 + ",");
+                                    }
+                                } else { // if the duration is less than the suitable duration, then only on-demand
+                                    outputInitialSol.print(2 + ",");
+                                }
+                            }
+                            if (decisionVar == 3) {// for the resplan choose which plan to reserve
+                                if ((int) Tot_duration >= suitable_duration_to_reserve_VM) {
+                                    if (non_overlapping_tasks.contains(t)) { // if it is reservation, let it be the forst plan, which is no upfront (the cheapest)
+                                        outputInitialSol.print(1 + ",");
+                                    } else { // if that is on-demand, assign zero to resplan
+                                        outputInitialSol.print(0 + ",");
+                                    }
+                                } else {
+                                    outputInitialSol.print(0 + ",");
+                                }
+
+                            }
+                        }// end of stages that should not be zero
+                        else // out of the range of start time and deadline, just put zero! 
+                        {
+                            outputInitialSol.print(0 + ",");
+                        }
+                    }
+
+                    outputInitialSol.println();
+                }
+                outputInitialSol.println();
+            }
+            outputInitialSol.println("]);");
+        }
+        //} //  end of if clause (Tot_duration>= suitable_duration_to_reserve_VM)
+        outputInitialSol.close();
+        //System.out.println(" Initial Soloution for user* "+ customerid +" *is ready, it is stored in : LNS-DecisionVariable.dzn" );
+        return (URL_to_store_the_file);
+    }// end of function initialSoloution
+
+// **this function read the prediction of cost/ time for all lns options + the exact results: 
+// we need to provide the predicted csv table, the user we want the prediction data and finally what to predict (target: cost/time) and which option( exact/option1../option6)
+    public static int Predict_task(String Predicted_csv_URL, int usr, String prediction_target, String OptionName) throws FileNotFoundException, IOException {
+      // prediction target : cost/ time
+        // optionname: exact/ option1/ option2/ .. /option6
+
+        /// read csv file in an efficient way:
+        String filename = Predicted_csv_URL; // the predicted csv file info
+        CSVReader reader = new CSVReader(new FileReader(filename), ',');
+        BufferedReader br = new BufferedReader(new FileReader(filename));
+        String line;
+        int[][] Predict_users = new int[928][16]; // number of users=927, thing to predict=14 
+        // header: User	#tasks	Tot_duration	Time_exat	cost_exat	Time_Option1	cost_Option1	Time_Option2	cost_Option2	Time_Option3	cost_Option3	Time_Option4	cost_Option4	Time_Option5	cost_Option5	Time_Option6	cost_Option6
+
+        int index = 0; //  user number
+        while (true) {
+            line = br.readLine();
+            if (line == null) {
+                break;
+            }
+            String[] cols = line.split(",");
+            //System.out.println("User= " + cols[0]+" " + " #tasks= " + cols[1] + " , Tot_duration=" + cols[2]);
+            if (cols[0].equals("User") || cols[0].equals("#tasks")) {
+                System.out.println(""); //header line passed
+            } else {
+                Predict_users[index][0] = Integer.valueOf(cols[1]);// #tasks
+                Predict_users[index][1] = Integer.valueOf(cols[2]);// Tot_duration 
+                Predict_users[index][2] = (int) Float.parseFloat(cols[3]);// predicted   Time_exat
+                Predict_users[index][3] = (int) Float.parseFloat(cols[4]);// predicted   cost_exat
+                Predict_users[index][4] = (int) Float.parseFloat(cols[5]);// predicted  Time_Option1
+                Predict_users[index][5] = (int) Float.parseFloat(cols[6]);// predicted  cost_Option1 
+                Predict_users[index][6] = (int) Float.parseFloat(cols[7]);// predicted  Time_Option2
+                Predict_users[index][7] = (int) Float.parseFloat(cols[8]);// predicted  cost_Option2
+                Predict_users[index][8] = (int) Float.parseFloat(cols[9]);// predicted  Time_Option3
+                Predict_users[index][9] = (int) Float.parseFloat(cols[10]);// predicted cost_Option3 
+                Predict_users[index][10] = (int) Float.parseFloat(cols[11]);// predicted    Time_Option4
+                Predict_users[index][11] = (int) Float.parseFloat(cols[12]);// predicted    cost_Option4
+                Predict_users[index][12] = (int) Float.parseFloat(cols[13]);// predicted    Time_Option5
+                Predict_users[index][13] = (int) Float.parseFloat(cols[14]);// predicted    cost_Option5 
+                Predict_users[index][14] = (int) Float.parseFloat(cols[15]);// predicted    Time_Option6
+                Predict_users[index][15] = (int) Float.parseFloat(cols[16]);// predicted    cost_Option6
+
+            }
+            index++;
+        }
+        int Return_result = 0;
+        if (prediction_target == "time") {
+            if (OptionName == "exact") {
+                Return_result = Predict_users[usr][2];
+            }
+            if (OptionName == "option1") {
+                Return_result = Predict_users[usr][4];
+            }
+            if (OptionName == "option2") {
+                Return_result = Predict_users[usr][6];
+            }
+            if (OptionName == "option3") {
+                Return_result = Predict_users[usr][8];
+            }
+            if (OptionName == "option4") {
+                Return_result = Predict_users[usr][10];
+            }
+            if (OptionName == "option5") {
+                Return_result = Predict_users[usr][12];
+            }
+            if (OptionName == "option6") {
+                Return_result = Predict_users[usr][14];
+            }
+        } else if (prediction_target == "cost") {
+            if (OptionName == "exact") {
+                Return_result = Predict_users[usr][3];
+            }
+            if (OptionName == "option1") {
+                Return_result = Predict_users[usr][5];
+            }
+            if (OptionName == "option2") {
+                Return_result = Predict_users[usr][7];
+            }
+            if (OptionName == "option3") {
+                Return_result = Predict_users[usr][9];
+            }
+            if (OptionName == "option4") {
+                Return_result = Predict_users[usr][11];
+            }
+            if (OptionName == "option5") {
+                Return_result = Predict_users[usr][13];
+            }
+            if (OptionName == "option6") {
+                Return_result = Predict_users[usr][15];
+            }
+        }
+        return (Return_result);
+    }
+
+//public static String Initial_Soloution_Greedy(int customerid,  String ModelType  ) throws FileNotFoundException, IOException
+//  {
+//      float MaxCPU=Biggest_Task(customerid, "with spot" ,"Cpu");// max required cpu
+//      float MaxMem=Biggest_Task(customerid, "with spot" ,"Memory"); // max required memory
+//      int maxDuration=(int) Biggest_Task(customerid, "with spot" ,"Duration"); // max duration of all tasks of the user
+//      int Tot_duration= (int) NonOveralp_Duration(customerid, ModelType,"Tot_Duration") ;
+//      List<Object> non_overlapping_tasks = (List<Object>) NonOveralp_Duration(7, "with spot", "non_overlapping_tasks" );
+//      //  VM1 and VM2 prices and features
+//      double ONdemand_price1= 0.1; 
+//      double ONdemand_price2= 0.4;
+//      double Res_price1= 59; 
+//      double Res_price2= 515;
+//      int CPU_VM1=2;
+//      int Mem_VM1=4;
+//      int CPU_VM2=8;      
+//      int Mem_VM2=15;
+//      int VMselection=2; 
+//      //***********************
+//      double suitable_duration_to_reserve_VM = 0;
+//  
+//      String URL_Minizinc_Model= "C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\"+sc+" scenarios\\" + ModelType +"";
+//      int nbTasks= nbTasks(customerid);               //number of tasks:
+//      Object[] getarray = stage1AllocationData(customerid,nbstages, ModelType);
+//      int[][] subTime = (int[][]) getarray[0];      
+//      int[][] Deadline = (int[][]) getarray[1];  
+//      int[][] duration= (int[][]) getarray[2];
+//      float [][] CPU= (float[][]) getarray[3];
+//      float [][] Memory= (float[][]) getarray[4];
+//      //------------------------------decision variable 2: SingleVmAlloc--------------------------------------------------
+//      // for the Vm selection, I am chooseing the biggest VM for all the stages that should not be neccessarily zero. 
+//      String URL_to_store_the_file= URL_Minizinc_Model+"\\LNS-DecisionVariable.dzn";
+//      PrintStream outputInitialSol = new PrintStream(new File(URL_to_store_the_file));
+//      String[] decisionVariable = new String[4];   
+//      decisionVariable[1] = "SingleVmAlloc = array3d(SCENARIOS,Task ,TIME ,[";
+//      decisionVariable[2] = "VMOption = array3d(SCENARIOS,Task ,TIME ,[";
+//      decisionVariable[3] = "ResPlan = array3d(SCENARIOS,Task ,TIME ,[";
+//      
+//       int[][] AssignVM_to_Tasks = new int[sc+1][nbTasks+1];  
+//       int[][] nbResVM= new int[sc+1][nbTasks+1];
+//        // Greedy starts from here:
+//       //step1: for each task assign the minimum VM that is suficient for it. 
+//       for (int s=1; s<=sc; s++){
+//            for (int t=1;t<=nbTasks;t++){
+//                if (CPU[s][t]<=CPU_VM1 && Memory[s][t]<=Mem_VM1  ){// if the  job can be satisfied with the small memory, choose the small one
+//                    VMselection=1;
+//                    suitable_duration_to_reserve_VM= Res_price1/ONdemand_price1;
+//                    AssignVM_to_Tasks[s][t]=1;
+//                }
+//                else if (CPU[s][t]<=CPU_VM2 && Memory[s][t]<=Mem_VM2  ){
+//                    VMselection=2;
+//                    suitable_duration_to_reserve_VM= Res_price2/ONdemand_price2; 
+//                    AssignVM_to_Tasks[s][t]=1;
+//                }
+//                else{
+//                    System.out.println("Error , All available VM's capacity are lower than maximum requirement of the jobs for user"+customerid );
+//                }
+//                
+//                if (duration[s][t]>suitable_duration_to_reserve_VM){
+//                    nbResVM[s][VMselection]+=1;
+//                    
+//                    
+//                }
+//                else {
+//                    for ( int previoustasks ;previoustasks<=t;t-- ){
+//                       duration[s][t]+duration[s][t-1] 
+//                    }
+//                    
+//                }
+//                
+//            }
+//       }
+//       for (int stage=1;stage<=nbstages;stage++){
+//           
+//       }
+//       
+//     
+//      
+//      //System.out.println(" Initial Soloution for user* "+ customerid +" *is ready, it is stored in : LNS-DecisionVariable.dzn" );
+//      return(URL_to_store_the_file);
+//  }// end of function initialSoloution
+}
