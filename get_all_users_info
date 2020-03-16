@@ -1,0 +1,74 @@
+
+package Allocation_InputData;
+
+import static Allocation_InputData.Main_Journal_Paper.Choose_option;
+import static Allocation_InputData.Workload_classes.*;
+import static Allocation_InputData.tamrin.Model;
+import java.util.*;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.sql.SQLException;
+import jxl.write.WriteException;
+
+/**
+ *
+ * @author z5038955
+ */
+public class get_all_user_info_into_csv {
+    public static void main(String[] args) throws SQLException,  IOException, WriteException, InterruptedException { 
+        //*************** create csv file**************************************
+        int sc=5;
+        //Delimiter used in CSV file
+        final String COMMA_DELIMITER = ",";
+        final String NEW_LINE_SEPARATOR = "\n";
+        //CSV file header
+        final String FILE_HEADER = "User,#tasks,Tot_duration, Best_option";
+ 
+        List rows = new ArrayList();
+        FileWriter fileWriter = null;
+
+        try{
+        // write the csv file
+         fileWriter = new FileWriter("C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\"+sc+" scenarios\\All_User_info.csv");
+         
+         //Write the CSV file header
+         fileWriter.append(FILE_HEADER.toString());
+
+        //Add a new line separator after the header
+        fileWriter.append(NEW_LINE_SEPARATOR);
+
+        //**************
+        for ( int customer=1; customer<=927 ; customer++){
+        //System.out.println("****************************"+customer+"*******************");
+        //System.out.println(nbTasks(customer));
+        //System.out.println(Total_duration(customer));
+        fileWriter.append(String.valueOf(customer));
+        fileWriter.append(COMMA_DELIMITER);
+        fileWriter.append( String.valueOf(nbTasks(customer)));
+        fileWriter.append(COMMA_DELIMITER);
+        fileWriter.append(String.valueOf(Total_duration(customer)));
+        fileWriter.append(COMMA_DELIMITER);
+        String filename= "C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\"+sc+" scenarios\\"+Model[1]+"\\LNS_Results_Iteration\\Regreession\\Reg_all_users_prediction\\Prediction_users_info.csv";
+        String Selected_option= Choose_option( filename,  customer );
+        fileWriter.append(Selected_option);
+        fileWriter.append(COMMA_DELIMITER);
+        fileWriter.append(NEW_LINE_SEPARATOR);
+                }
+        System.out.println("CSV file was created successfully !!!");
+
+        } catch (Exception e) {
+            System.out.println("Error in CsvFileWriter !!!");
+            e.printStackTrace();
+        } finally {
+            try {
+                fileWriter.flush();
+                fileWriter.close();
+           } catch (IOException e) {
+                System.out.println("Error while flushing/closing fileWriter !!!");
+                e.printStackTrace();
+            }
+        }
+//****************
+    
+}
+}
