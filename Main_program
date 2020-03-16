@@ -1,0 +1,293 @@
+/*
+ * To change this license header, choose License Headers in Project Properties.
+ * To change this template file, choose Tools | Templates
+ * and open the template in the editor.
+ */
+package Allocation_InputData;
+
+import static Allocation_InputData.Workload_classes.*;
+import static Allocation_InputData.LNS_classes.*;
+import static Allocation_InputData.tamrin.Amazon_Lambda_Price;
+import com.google.common.base.Stopwatch;
+import java.io.File;
+import java.io.FileNotFoundException;
+
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.sql.SQLException;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Date;
+import java.util.List;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import jxl.write.WriteException;
+
+/**
+ *
+ * this code is for my new Allocation model!  in this code I will generate new data suitable for my new model! 
+ * run the Minizinc files in an automatic manner
+ * 
+ */
+public class Main_Program {
+ 
+     public static int sc=5;
+     public static int nbstages=696;
+     public static int Run=1;
+     public static int startCustomer=200; // testing 1 scenario speed  with 10 scenarios// continiue from 79 aferward
+     public static int endCustomer=200;
+     public static int timeout=60*60; //  1 hour --- eventhough I set this as the timeout, but the solver tries to finish the closest middle solution. So if I set timeout as 10,
+                                   //  it could be finished after 32, which is the closest time to return the closest middle solution! 
+     //public static int timeout=0; // if we do not want any timeout timeout=0
+public static void main(String[] args) throws SQLException, ClassNotFoundException, IOException, WriteException { 
+
+    String[] Model = new String[10];
+        Model[1] = "with spot";
+        Model[2] = "all on demand";
+        Model[3] = "deterministic";
+        Model[4] = "without spot";
+        Model[5] = "deterministic-1scenario";
+        String URL_Minizinc_Model="C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\"+sc+" scenarios\\" + Model[1] +"";
+        
+        
+        
+        List<Integer> Done_users = Arrays.asList(2,3,5,6,7,11,12,15,21,23,24,28,30,31,35,38,40,53,57,64,65,66,72,73,76,78,82,85,
+        86,90,91,92,95,96,98,99,100,101,108,109,113,114,117,124,127,134,139,140,148,158,159,161
+        ,162,163,165,167,168,169,172,174,179,184,186,188,191,195,197,209,211,213,214,217,218,224,
+        230,238,242,246,249,257,260,263,267,268,269,270,272,273,275,285, 200); // 106 and 190 are removed temporary
+       
+        List<Integer> Done_users_slow_ones=Arrays.asList( 1,3,48,9,10,13,14,16,17,18,19,20,22,25,26,27,29,32,33,34,36,37,39,
+                41,42,43,44,4546,47,48,49,50,51,52,54,55,56);//, 53,64,78, 85); // user 31 toks around 3 weeks!
+         // 53 took more than 3 days // 64 was long running as well!/ 78 ( 5 days)/
+        //List<Integer> Done_users = Arrays.asList(2,7,11,5,21,23,28,30,35,38,57,65,72,73,76,90,92,96,98,99,100);
+        // we have four soloution : 1. initial soloution 2. temporary soloution 3. destroyed soloution 4. ecaxt partial solution
+        String[] DecisionVar = new String[5];
+        DecisionVar[1] ="LNS-DecisionVariable.dzn";
+        DecisionVar[2] ="LNS_TempSoloution.dzn";
+        DecisionVar[3] ="LNS-DecisionVariable_destroyed.dzn";
+        DecisionVar[4] ="exact-DecisionVariable.dzn";
+        // ********************************varaibles to change ************************************
+        String Initial_Sol_select="normal"; // smart , normal
+        String Initial_Sol_Option="Smallusers"; // Smallusers: only on_demand, Bigusers: only reservation;
+        String Destroy_algrthm_option="Normal"; //"Normal" or "StartTime_Random";
+        String My_Approach= "Exact";//"LNS", "Exact"
+        int destroyrate=50;
+        int nbIteration=10;
+        int start_option=6;
+        int end_option=6;
+        // start time, end time and duration of execution of each options:
+        // lambda pricing: 
+        // *****************csv file to store result of differnt iteration of LNS algorithm: *********************************
+        String EXACT_csv_filename= "EXACT_results";
+        String EXACT_CSV_URL="C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\"+sc +" scenarios\\with spot\\LNS_Results_Iteration\\"+EXACT_csv_filename+".csv";
+        if (My_Approach== "Exact"){
+            start_option=1; // do not change it
+            end_option=1;  // do not change it
+        }
+        StringBuilder sb = new StringBuilder();
+        StringBuilder sb_exact = new StringBuilder();
+        for ( int op=start_option; op<=end_option; op++){// all posiible options for creating csv file! +_+_+_+
+           //if (op==2 || op==6){
+            if (op==1){
+        Destroy_algrthm_option="Normal"; //"Normal" or "StartTime_Random"; 
+         }  
+         if (op==2){
+        Destroy_algrthm_option="StartTime_Random"; //"Normal" or "StartTime_Random"; 
+         }
+        if (op==3){
+        Initial_Sol_Option="Bigusers"; // Smallusers: only on_demand, Bigusers: only reservation;
+        Destroy_algrthm_option="Normal"; //"Normal" or "StartTime_Random"; 
+         }
+        if (op==4){
+        Initial_Sol_Option="Bigusers"; // Smallusers: only on_demand, Bigusers: only reservation;
+        Destroy_algrthm_option="StartTime_Random"; //"Normal" or "StartTime_Random"; 
+         }
+        if (op==5){
+        Initial_Sol_select="smart"; // smart , normal
+        Destroy_algrthm_option="Normal"; //"Normal" or "StartTime_Random"; 
+         }
+         if (op==6){
+        Initial_Sol_select="smart"; // smart , normal
+        Destroy_algrthm_option="StartTime_Random"; //"Normal" or "StartTime_Random"; 
+         }
+         //*************************
+         
+         String LNS_csv_filename = null;
+         if (op!=5 && op!=6){
+            LNS_csv_filename= Initial_Sol_Option+"_"+Initial_Sol_select+"_"+Destroy_algrthm_option;
+         }
+         else if (op==5 || op==6){
+            LNS_csv_filename= Initial_Sol_select+"_"+Destroy_algrthm_option;
+         }
+        String LNS_CSV_URL="C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\"+sc+" scenarios\\with spot\\LNS_Results_Iteration\\"+LNS_csv_filename+".csv";
+         // prepare the csv file header:
+        sb.setLength(0);
+        sb.append("User");
+        sb.append(',');
+        for (int it=1; it<=nbIteration;it++){
+        sb.append("Itertion"+ it);
+        sb.append(",");
+        }
+        sb.append("Time(sec)");
+        sb.append(",");
+        sb.append('\n');
+        // header of the csv file for exact solutions: 
+        // prepare the csv file header:
+        if (My_Approach== "Exact"){
+        sb_exact.append("User");
+        sb_exact.append(',');
+        sb_exact.append("#tasks");
+        sb_exact.append(',');
+        sb_exact.append("Tot_duration");
+        sb_exact.append(',');
+        sb_exact.append("Exact_result");
+        sb_exact.append(',');
+        sb_exact.append("Time(sec)");
+        sb_exact.append(',');
+        sb_exact.append("Lambda_result");
+        sb_exact.append(',');
+        sb_exact.append('\n');
+        }
+       //*********************************************************************************
+       //*********************************************************************************
+        for (int customer=startCustomer; customer<=endCustomer; customer++ ){
+            int nbtsks=nbTasks(customer);// number of tasks for each customer
+            //if ( nbtsks!=0 &&  Total_duration(customer)<=500 && nbtsks<=10  ){ // only for small number of tasks
+           // if( nbtsks!=0 &&  nbTasks(customer)+ Total_duration(customer)<=1500 && (Done_users.contains(customer))  && !(Done_users_slow_ones.contains(customer)) ){//&& (Done_users.contains(customer)) ){ 
+            if( nbtsks!=0 &&   Done_users.contains(customer)){ //  !(Done_users_slow_ones.contains(customer)) ){  //(Done_users.contains(customer))  && !(Done_users_slow_ones.contains(customer)) ){
+            sb.append(customer);        sb.append(','); // prepare the csv file for user i
+            System.out.println("************  User "+customer +" ************"+  " ( Total_duration= "+ Total_duration(customer)+ " number of tasks:"+ nbTasks(customer)+ " )" );
+            List<Double> list_Tot_cost= new ArrayList<Double>();
+            // *** time to finish the lns execution
+            Stopwatch stopwatch = Stopwatch.createStarted();
+            
+            double Total_Cost;            // total optimized cost
+            double Optimal_cost;
+            double Initial_Total_Cost=10000; // initial soloution optimal cost
+            //1. Capture Prices (Random or Real VMPrice: random has scenarios and real has no scenarios)
+            VMprice("Real",Model[1] ); // if we want to get the actual prices for stage 2, the argument should be "Real" otherwise for stage 1 prices: "Random", 
+            // 2. get the workload data
+             //Object[] getarray=stage1AllocationData_random(customer,nbstages, Model[1],sc); //  
+            Object[] getarray=stage1AllocationData(customer,nbstages, Model[1],sc);
+//-----------LNS starts here: ---------------------------------------------------------
+            if (My_Approach=="LNS"){
+            int loop=0;
+            // 3. create an initial soloution 
+            if (Initial_Sol_select=="normal"){
+            Initial_Soloution(customer, Model[1], Initial_Sol_Option,sc);
+            }
+            if (Initial_Sol_select=="smart"){
+            Initial_Soloution_smart(customer, Model[1],sc);
+            }
+            
+            String DecisionVariableFile=DecisionVar[1];    // file to store decision variable in: DecisionVar[1] ="LNS-DecisionVariable.dzn"; 
+            //Initial_Total_Cost= runminizinc_LNS(customer, Run,sc,  Model[1], 1,DecisionVariableFile); // run the minizinc with initial solution and store the total cost as initial total cost
+            // the LNS while loop starts
+             
+            while (loop<nbIteration){ 
+                // 4  run the minizinc based on the initial soloution that we have and the output is Total_cost
+                // + the new soloutions that stored in LNS_TempSoloution.dzn
+                Total_Cost=runminizinc_LNS(customer, Run,sc,  Model[1], 1,DecisionVariableFile, timeout);
+                sb.append(Total_Cost); sb.append(",");
+
+                // if the new total cost is less than the initial_total_cost then replace the initial soloution with temp soloution
+                if  (Total_Cost<Initial_Total_Cost){
+                    // so current soloution ( DecisionVar[2] ="LNS_TempSoloution.dzn") is better, so we can assign it as the solution now! 
+                    DecisionVariableFile= DecisionVar[2];
+                    //Initial_Total_Cost=Total_Cost;
+                    //System.out.println(" a better soloution found: "+Total_Cost );
+                    list_Tot_cost.add(Total_Cost);
+                }
+                
+                // destroy the solution partially
+                if (Destroy_algrthm_option == "Normal"){
+                    Destroy_Soloution(customer, Model[1] ,DecisionVariableFile, destroyrate,"LNS-DecisionVariable_destroyed.dzn");
+                    //Destroy_Soloution(customer, Model[1] ,DecisionVariableFile, destroyrate,"LNS-DecisionVariable_destroyed_iter"+(loop+1)+".dzn");
+
+                }else  if (Destroy_algrthm_option== "StartTime_Random"){
+                    Destroy_Soloution_startTime_Based(customer, Model[1] ,DecisionVariableFile, destroyrate, "LNS-DecisionVariable_destroyed.dzn");
+                    //Destroy_Soloution_startTime_Based(customer, Model[1] ,DecisionVariableFile, destroyrate, "LNS-DecisionVariable_destroyed_iter"+(loop+1)+".dzn");
+
+                }
+                // after destroying the soloution, the destroyed soloution is stored in :DecisionVar[3] ="LNS-DecisionVariable_destroyed.dzn";
+                DecisionVariableFile= DecisionVar[3];
+                loop+=1;
+                System.out.println("LNS loop iteration***  "+loop+" total cost found: "+ Total_Cost);
+                
+                
+            }// end of LNS while loop 
+           
+            stopwatch.stop(); // optional
+            long seconds =stopwatch.elapsed(MILLISECONDS)/1000;
+            sb.append(seconds); sb.append(",");
+            sb.append('\n');
+            create_CSV(LNS_CSV_URL ,sb);
+            
+            System.out.println("total cost improvement after each iteration:" +list_Tot_cost);
+            Optimal_cost=Collections.min(list_Tot_cost);
+            }
+            else if (My_Approach=="Exact"){
+                Date starttime = new Date();
+                System.out.println(sdf.format(starttime));
+                //long startTime_exact = System.nanoTime();
+                float Lambda_price= Amazon_Lambda_Price(customer, Model[1]);
+                
+                Initial_Soloution_exact(customer, Model[1],sc, getarray);
+                String DecisionVariableFile=DecisionVar[4];// exact-DecisionVariable.dzn
+                
+                Stopwatch stopwatch_exact = Stopwatch.createStarted();
+                //System.out.println(" starting time: " + stopwatch_exact.elapsed(MILLISECONDS)/1000);
+
+                Total_Cost=runminizinc_LNS(customer, Run,sc,  Model[1], 1,DecisionVariableFile, timeout);
+                stopwatch_exact.stop(); //
+                long seconds_exact =stopwatch_exact.elapsed(MILLISECONDS)/1000;
+                Date sfintime = new Date();
+
+                System.out.println(" end time: " + sdf.format(sfintime)+ "("+seconds_exact+")");
+                System.out.println("Exact model finished sucessfully, best total cost found: "+ Total_Cost +"( "+  seconds_exact+")");
+                
+                sb_exact.append(customer);   sb_exact.append(',');
+                sb_exact.append(nbTasks(customer));   sb_exact.append(',');
+                sb_exact.append(Total_duration(customer));   sb_exact.append(',');
+                sb_exact.append(Total_Cost);   sb_exact.append(',');
+                sb_exact.append(seconds_exact);   sb_exact.append(',');
+                sb_exact.append(Lambda_price);   sb_exact.append(',');
+                
+                sb_exact.append('\n');
+            }
+            if (My_Approach=="Exact"){
+              create_CSV(EXACT_CSV_URL ,sb_exact);  
+            }
+            //stage1AllocationData(customer, nbstages, Model[1]);
+            //run model  stage2:
+            //runminizinc(customer, Run,  nbstages,  Model[1], 2); // 1 means the first stage model and 2 means the second!  
+            //System.out.println("number of task for user "+customer+": "+  nbtsks);
+            
+
+            }// end of if nbtasks<=10 loop
+
+        }//end of user loop
+        if (My_Approach!="Exact"){ 
+        System.out.println("csv file is ready for op : "+op + " ,stored in : " +LNS_CSV_URL);
+        }
+        
+        }// end of all csv file options+_+_+_+
+        
+    }
+
+private static final DateFormat sdf = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+
+public static void create_CSV(String csv_file_URL, StringBuilder csvdata ) throws FileNotFoundException, IOException
+  {     PrintWriter pw = new PrintWriter(new File(csv_file_URL));
+        pw.write(csvdata.toString());
+        pw.close();
+    }
+
+
+  
+}// end of my main program
+    
+
+
