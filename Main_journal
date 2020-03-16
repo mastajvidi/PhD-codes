@@ -1,0 +1,622 @@
+/*
+ * To change this license header, choose License Headers in Project Properties.
+ * To change this template file, choose Tools | Templates
+ * and open the template in the editor.
+where to get the output: LNS_Final solutions_stage2 in scenario 1 solder, I can also find the user_tale csv file in the same folder
+amd LNS_Final solutions_stage1 in the related schenarion number folder 5 scenario)
+I can also find the user_tale csv file in the same folder
+ */
+package Allocation_InputData;
+
+import static Allocation_InputData.LNS_classes.Destroy_Soloution;
+import static Allocation_InputData.LNS_classes.Destroy_Soloution_startTime_Based;
+import static Allocation_InputData.LNS_classes.Initial_Soloution;
+import static Allocation_InputData.LNS_classes.Initial_Soloution_exact;
+import static Allocation_InputData.LNS_classes.Initial_Soloution_smart;
+import static Allocation_InputData.Main_Program.create_CSV;
+//import static Allocation_InputData.Main_Program.sc;
+import static Allocation_InputData.Workload_classes.SpotPrice;
+import static Allocation_InputData.Workload_classes.Total_duration;
+import static Allocation_InputData.Workload_classes.nbTasks;
+import static Allocation_InputData.Workload_classes.stage1AllocationData;
+import static Allocation_InputData.Workload_classes.stage1AllocationData_random;
+import com.google.common.base.Stopwatch;
+import com.opencsv.CSVReader;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.PrintStream;
+import static java.lang.Float.valueOf;
+import static java.lang.Math.abs;
+import java.sql.SQLException;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Date;
+import java.util.List;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import jxl.write.WriteException;            
+/**
+This class is going to run stage 1 and store number of res vms in a dzn file
+* and then run  stage 2 model, to see final cost!  
+ */
+public class Main_Journal_Paper {
+    // public static int sc= 5;
+     public static int nbstages=696;
+     public static int Run=1;
+     public static int startCustomer=200;//343;
+                                        //760; //334 too slow did not finish 4 days, did not finish
+                                          // 457 too slow; took 1 day, did not finish
+                                                // user 739 took more than 15 days I manually stopped 
+                                            // 53 took at least 2 days
+                                                // 78 4  public static int endCustomer=900;//920;
+                                                //324 3 days
+                                                 //342, 356   :got an error
+                                              // 218 more than 3 days !
+                                            // 739 more than 3 days
+     
+    public static int endCustomer=1000;//1000;
+     public static int timeout=60*60; // eventhough I set this as the timeout, but the solver tries to finish the closest middle solution. So if I set timeout as 10,
+     //public static int ttotimeout=0; // if we do not want any timeout timeout=0
+    private static Object sdf;
+     
+    public static void main(String[] args) throws SQLException, ClassNotFoundException, IOException, WriteException { 
+        int sc=5;
+        String[] Model = new String[10];
+        Model[1] = "with spot";
+        Model[2] = "all on demand";
+        Model[3] = "deterministic";
+        Model[4] = "without spot";
+        Model[5] = "no reservation";
+        String mymodel=Model[3];
+         // we have four soloution : 1. initial soloution 2. temporary soloution 3. destroyed soloution 4. ecaxt partial solution
+        String[] DecisionVar = new String[5];
+        DecisionVar[1] ="LNS-DecisionVariable.dzn";
+        DecisionVar[2] ="LNS_TempSoloution.dzn";
+        DecisionVar[3] ="LNS-DecisionVariable_destroyed.dzn";
+        DecisionVar[4] ="exact-DecisionVariable.dzn";
+        
+        // predict the cost and time for all options and finally choose an option to be run
+        // URL where all predicted time and cost is stored in: 
+        String filename= "C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\"+sc+" scenarios\\"+mymodel+"\\LNS_Results_Iteration\\Regreession\\Reg_all_users_prediction\\Prediction_users_info.csv";
+        //Predict_task( filename, 2, "cost", "option4" );
+
+        // ***********if we decided to get all the data and then run the models:****************
+        //for (int customer=startCustomer; customer<=endCustomer; customer++ ){
+          //  Prepare_the_data(customer, Model[1] , nbstages );
+        //}
+        // prepare the csv file that stores the best heuristic option and the execution time for each user 
+        String csv_filename= "User_table";
+        String CSV_URL="C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\"+sc+" scenarios\\"+mymodel+"\\LNS_Final solutions_stage2\\"+csv_filename+".csv";
+        System.out.println("the user table is stored in :"+ CSV_URL);
+        StringBuilder sb_csv = new StringBuilder();
+        //cvs header:
+        sb_csv.append("User");sb_csv.append(',');
+        sb_csv.append("#tasks");sb_csv.append(',');
+        sb_csv.append("Tot_duration");sb_csv.append(',');
+        sb_csv.append("Best_Heuristic");sb_csv.append(',');
+        sb_csv.append("Execution_Time(sec)");sb_csv.append(',');
+        sb_csv.append("Cost_stage1");sb_csv.append(',');
+        sb_csv.append("Cost_stage2");sb_csv.append(',');
+        sb_csv.append('\n');
+        
+         List<Integer> slow_users = Arrays.asList(53,218,324,334 ,342,457,733, 760); // slow users
+        List<Integer> Done_users=Arrays.asList( 211,213,249,268,275,290,291,313,318,325,333,336,356,365,373,385,393,400
+         ,412,436,440,448,452,487,515,524,531,535,536,546,555,559,561,565,566,570,580,584,607,621,636,643,648,663,
+         668,673,674,680,703,705,707,713,716,717,718,720,740,749,761,787,793,797,802,805,806,807,817,828,837,847,
+         853,856,878,881,899,901,910,913); // around 80 users
+        List<Integer> test_users=Arrays.asList(524,580,648);
+        // *********************************************************************************************************************
+        for (int customer=startCustomer; customer<=endCustomer; customer++ ){
+            int nbtsks=nbTasks(customer);// number of tasks for each customer
+            int t_duration=Total_duration(customer);
+            //--------------------------------------------------------------
+            //if( nbtsks!=0 &&  nbTasks(customer)+ t_duration<=50  && !slow_users.contains(customer)  ){ 
+            if(Done_users.contains(customer)){
+            
+            //--------------------------------------------------------------
+                // first lest compare the times, find the ones with time less or equal to 1 hour.. If none, choose the lowest time option
+            String Selected_option= Choose_option( filename,  customer );
+            System.out.println( "User:  __"+customer + "__ ( "+"nbtasks: "+nbtsks+"," +"duration "+ t_duration+ ")   **best option** : "+ Selected_option);
+                // csv file add user number, nbtasks, tot duration and the best option:
+                sb_csv.append(customer);sb_csv.append(',');
+                sb_csv.append(nbtsks);sb_csv.append(',');
+                sb_csv.append(t_duration);sb_csv.append(',');
+                sb_csv.append(Selected_option);sb_csv.append(',');
+
+            
+            //-----------------------------------------------------------------
+                //show the strat time
+                Date starttime = new Date();
+                System.out.println(sdf_fun.format(starttime));
+            sc=5;    
+            //step 1: prepare the data files for stage 1 
+            // create the random workload and price data"
+            //1. Capture Prices (Random or Real VMPrice: random has scenarios and real has no scenarios)
+            if( mymodel.equals("deterministic")){
+              VMprice("Real",mymodel,sc );  
+            }
+            else{
+                VMprice("Random",mymodel,sc );
+                 } // if we want to get the actual prices for stage 2, the argument should be "Real" otherwise for stage 1 prices: "Random", 
+            System.out.println( "Step 1 is done , Prices are captured");
+            // 2. get the workload data ( not the actual ones, the random ones)
+            Object[] getarray=stage1AllocationData_random(customer,nbstages, mymodel,sc);
+            if( mymodel.equals("deterministic")){
+               getarray=stage1AllocationData(customer,nbstages, mymodel,sc);  
+            }
+            
+              
+            System.out.println( "Step 2 is done, Workload data is captured");
+            // step3:  run minizinc and store the number of Res VM in an appropriate file to let stage 2 model use it 
+            int stage=1;   // Model 1 or model 2 (rolling model)? 
+            int nbIteration=10; // number of LNS iterations
+            int destroyrate=50; // destroy rate in LNS function
+            // run the Minizinc model stage 1( LNS or exact: )
+            Double Stage_1total_cost=0.0;
+            Stopwatch stopwatch = Stopwatch.createStarted();
+            if (Selected_option=="exact"){
+                Stage_1total_cost=Run_Exact_All_in_One(customer, mymodel , stage,sc, getarray);
+                System.out.println( "exact model was run ");
+            }
+            else{
+                Stage_1total_cost=Run_LNS_All_in_One(customer, mymodel, sc, stage, nbIteration,  destroyrate, Selected_option);
+                System.out.println( "LNS model was run:  "+ Selected_option);
+                
+            }
+            System.out.print("Step 3 done: minizinc run completed");
+            
+            // for the second stage we have only one scenario (which is the actual scenario):
+            sc=1;
+            // step 4: Prepare the stage 2 data : 
+            VMprice("Real",mymodel,sc ); // if we want to get the actual prices for stage 2, the argument should be "Real" otherwise for stage 1 prices: "Random", 
+            stage1AllocationData(customer,nbstages, mymodel,sc); 
+            System.out.println("Step 4 done: stage 2 model data is ready");
+            System.out.println("*****  Stage 2 begins here :");
+
+            // step 5: Run the stage 2 model and store the final results in an appropriate way
+            //Run_Exact_All_in_One(customer, mymodel ,2);
+            Double Stage_2total_cost=0.0;
+            stage=2;   // Model 1 or model 2 (rolling model)? 
+            if (Selected_option=="exact"){
+                 Stage_2total_cost=  Run_Exact_All_in_One(customer, mymodel , stage,sc, getarray);
+                 System.out.println( "exact model was run ");
+            }
+            else{
+                Stage_2total_cost=Run_LNS_All_in_One(customer, mymodel, sc, stage, nbIteration,  destroyrate, Selected_option);
+                 System.out.println( "LNS model was run:  "+ Selected_option);
+            }
+
+            // store the execution time into the csv file as well! 
+                stopwatch.stop(); // optional
+                long seconds =stopwatch.elapsed(MILLISECONDS)/1000;
+                sb_csv.append(seconds);
+                sb_csv.append(',');
+                sb_csv.append(Stage_1total_cost);
+                sb_csv.append(',');
+                sb_csv.append(Stage_2total_cost);
+                sb_csv.append(',');
+                sb_csv.append('\n');
+                create_CSV(CSV_URL ,sb_csv);
+            //-----------------------------------------------------------
+
+                System.out.println("Step 5 done: stage 2 minizinc run sucessfuly in "+seconds+" seconds");
+                System.out.println("__________________________________________________________________");
+                System.out.println("__________________________________________________________________");
+            //-----------------------------------------------------------
+
+        }// for all users loop 
+        } // end of if (limiting the customers to run)
+    }
+   public static double Run_Exact_All_in_One(int customer, String Model , int stage, int sc,  Object[] getarray) throws FileNotFoundException, IOException {
+       
+        Initial_Soloution_exact(customer, Model,sc,getarray);
+        double Total_Cost= runminizinc_Final(customer, Run, sc, Model, stage,"exact-DecisionVariable.dzn",timeout);
+        return (Total_Cost);
+    }
+   public static Double Run_LNS_All_in_One(int customer, String Model ,int sc, int stage, int nbIteration, int destroyrate, String LNSoption) throws FileNotFoundException, IOException {
+       String[] DecisionVar = new String[4];
+        DecisionVar[1] ="LNS-DecisionVariable.dzn";
+        DecisionVar[2] ="LNS_TempSoloution.dzn";
+        DecisionVar[3] ="LNS-DecisionVariable_destroyed.dzn";
+        
+        String Initial_Sol_select="normal"; // smart , normal
+        String Initial_Sol_Option="Smallusers"; // Smallusers: only on_demand, Bigusers: only reservation;
+        String Destroy_algrthm_option="Normal"; //"Normal" or "StartTime_Random";
+        
+        if (LNSoption=="option1"){
+            Destroy_algrthm_option="Normal";
+        }
+        else if (LNSoption=="option2"){
+            Destroy_algrthm_option="StartTime_Random";
+        }
+        else if (LNSoption=="option3"){
+            Initial_Sol_Option="Bigusers"; 
+            Destroy_algrthm_option="Normal";
+        }
+        else if (LNSoption=="option4"){
+            Initial_Sol_Option="Bigusers"; 
+            Destroy_algrthm_option="StartTime_Random";
+        }
+        else if (LNSoption=="option5"){
+            Initial_Sol_select="smart"; 
+            Destroy_algrthm_option="Normal";
+        }
+        else if (LNSoption=="option6"){
+            Initial_Sol_select="smart"; 
+            Destroy_algrthm_option="StartTime_Random";
+        }
+        List<Double> list_Tot_cost= new ArrayList<Double>();
+        // LNS algorithm starts from here:
+        double Total_Cost;            // total optimized cost
+        double Initial_Total_Cost=10000; // initial soloution optimal cost
+        int loop=0;
+        
+        if (Initial_Sol_select=="normal")
+            Initial_Soloution(customer, Model, Initial_Sol_Option, sc);
+        if (Initial_Sol_select=="smart")
+            Initial_Soloution_smart(customer, Model, sc);
+        
+        String DecisionVariableFile=DecisionVar[1];    // file to store decision variable in: DecisionVar[1] ="LNS-DecisionVariable.dzn"; 
+        
+        while (loop<nbIteration){ 
+                //  run the minizinc based on the initial soloution that we have and the output is Total_cost
+                // + the new soloutions will be stored in LNS_TempSoloution.dzn
+                Total_Cost=runminizinc_Final(customer, Run, sc, Model, stage,DecisionVariableFile,timeout);
+                // if the new total cost is less than the initial_total_cost then replace the initial soloution with temp soloution
+                if  (Total_Cost<Initial_Total_Cost){
+                    // so current soloution ( DecisionVar[2] ="LNS_TempSoloution.dzn") is better, so we can assign it as the solution now! 
+                    DecisionVariableFile= DecisionVar[2];
+                    list_Tot_cost.add(Total_Cost);
+                }
+                 // destroy the solution partially
+                if (Destroy_algrthm_option == "Normal"){
+                    Destroy_Soloution(customer, Model ,DecisionVariableFile, destroyrate,DecisionVar[3]);
+
+                }else  if (Destroy_algrthm_option== "StartTime_Random"){
+                    Destroy_Soloution_startTime_Based(customer, Model ,DecisionVariableFile, destroyrate, DecisionVar[3]);
+                }
+                // after destroying the soloution, the destroyed soloution is stored in :DecisionVar[3] ="LNS-DecisionVariable_destroyed.dzn";
+                DecisionVariableFile= DecisionVar[3]; //DecisionVar[3] ="LNS-DecisionVariable_destroyed.dzn";
+                loop+=1;
+                System.out.println("LNS loop iteration***  "+loop+" total cost found: "+ Total_Cost);
+            }// end of LNS while loop 
+        return (Collections.min(list_Tot_cost));
+   }
+   public static void Prepare_the_data(int customer, String Model , int stage,int sc ) throws FileNotFoundException, IOException, SQLException, ClassNotFoundException, WriteException {
+    //stage 1 data:
+            VMprice("Random",Model,sc );
+            stage1AllocationData_random(customer,nbstages, Model,sc);
+   //stage2 data:
+            VMprice("Real",Model, sc ); // if we want to get the actual prices for stage 2, the argument should be "Real" otherwise for stage 1 prices: "Random", 
+            stage1AllocationData(customer,nbstages, Model,sc);
+          }
+   public static String Choose_option(String filename, int customerid ) throws FileNotFoundException, IOException
+  {
+    // first lest compare the times, find the ones with time less or equal to 1 hour.. If none, choose the lowest time option
+        String[] options = new String[7];
+        options[0] ="exact";
+        options[1] ="option1";
+        options[2] ="option2";
+        options[3] ="option3";
+        options[4] ="option4";
+        options[5] ="option5";
+        options[6] ="option6";
+        
+        // we will go through the execution time of each options one by one: 
+        // if they are less than an hour then we choose the more accurate one among them
+        // otherwise we will pick the shortest time
+        //int customerid=35;
+        Float Mintime=Predict_task(filename, customerid, "time", options[0]);
+        String selected_option= options[0];
+        Float Result_exact= Predict_task(filename, customerid, "cost", options[0]);
+        Float best_accuracy= abs(Predict_task(filename, customerid, "cost", options[1])-Result_exact);
+        int Flag_no_less_than_hour=1; // if we do not have any option running for less than hour this number is one, as soon as we found one less than hour, this flag becomes zero
+        for (int i=0 ; i<=6; i++){   
+            String current_option=options[i];
+            Float currentoptiontime=Predict_task( filename, customerid, "time", options[i]);
+            Float current_accuracy= abs(Predict_task(filename, customerid, "cost", options[i])-Result_exact);
+                         // find the min time if there is no option less than hour
+            if (currentoptiontime <Mintime ){
+                 Mintime=currentoptiontime;
+                 selected_option=options[i];
+             } 
+            // if we have a couple of options with less than 1 hour choose the best accuracy among them
+            if (currentoptiontime<=1){
+                 //check the accuracy
+                if (current_accuracy<best_accuracy){
+                 selected_option=options[i];
+                 best_accuracy=current_accuracy;//abs(Predict_task(filename, customerid, "cost", options[i])-Result_exact);
+                }
+            }
+
+                       
+        }
+       return(selected_option);  
+  }
+      public static Float Predict_task(String Predicted_csv_URL, int usr, String prediction_target, String OptionName  ) throws FileNotFoundException, IOException
+  {
+      // prediction target : cost/ time
+      // optionname: exact/ option1/ option2/ .. /option6
+      
+      /// read csv file in an efficient way:
+        String filename= Predicted_csv_URL; // the predicted csv file info
+        CSVReader reader = new CSVReader(new FileReader(filename), ',');
+        BufferedReader br = new BufferedReader(new FileReader(filename));
+        String line;
+        Float[][] Predict_users = new Float[928][16]; // number of users=927, thing to predict=14 
+        // header: User	#tasks	Tot_duration	Time_exat	cost_exat	Time_Option1	cost_Option1	Time_Option2	cost_Option2	Time_Option3	cost_Option3	Time_Option4	cost_Option4	Time_Option5	cost_Option5	Time_Option6	cost_Option6
+
+        int index=0; //  user number
+            while (true) {
+                line = br.readLine();
+                if (line == null) {
+                    break;
+                }
+                String[] cols = line.split(",");
+                //System.out.println("User= " + cols[0]+" " + " #tasks= " + cols[1] + " , Tot_duration=" + cols[2]);
+                if (cols[0].equals("User") || cols[0].equals("#tasks")){
+                    System.out.println(""); //header line passed
+                }else{
+                    Predict_users[index][0]=valueOf(cols[1]) ;// #tasks
+                    Predict_users[index][1]=valueOf(cols[2]) ;// Tot_duration 
+                    Predict_users[index][2]= Float.parseFloat(cols[3]) ;// predicted   Time_exat
+                    Predict_users[index][3]= Float.parseFloat(cols[4]) ;// predicted   cost_exat
+                    Predict_users[index][4]= Float.parseFloat(cols[5]) ;// predicted  Time_Option1
+                    Predict_users[index][5]= Float.parseFloat(cols[6]) ;// predicted  cost_Option1 
+                    Predict_users[index][6]= Float.parseFloat(cols[7]) ;// predicted  Time_Option2
+                    Predict_users[index][7]= Float.parseFloat(cols[8]) ;// predicted  cost_Option2
+                    Predict_users[index][8]= Float.parseFloat(cols[9]) ;// predicted  Time_Option3
+                    Predict_users[index][9]= Float.parseFloat(cols[10]) ;// predicted cost_Option3 
+                    Predict_users[index][10]= Float.parseFloat(cols[11]) ;// predicted    Time_Option4
+                    Predict_users[index][11]= Float.parseFloat(cols[12]) ;// predicted    cost_Option4
+                    Predict_users[index][12]= Float.parseFloat(cols[13]) ;// predicted    Time_Option5
+                    Predict_users[index][13]= Float.parseFloat(cols[14]) ;// predicted    cost_Option5 
+                    Predict_users[index][14]= Float.parseFloat(cols[15]) ;// predicted    Time_Option6
+                    Predict_users[index][15]= Float.parseFloat(cols[16]) ;// predicted    cost_Option6
+                    
+                }
+                index++;
+                }
+            Float Return_result=0.0f;
+            if (prediction_target=="time"){
+                if (OptionName=="exact")
+                     Return_result=Predict_users[usr][2];
+                if (OptionName=="option1")
+                    Return_result=Predict_users[usr][4];
+                if (OptionName=="option2")
+                    Return_result=Predict_users[usr][6];
+                if (OptionName=="option3")      
+                    Return_result=Predict_users[usr][8];
+                if (OptionName=="option4")
+                    Return_result=Predict_users[usr][10];
+                if (OptionName=="option5")
+                    Return_result=Predict_users[usr][12];
+                if (OptionName=="option6")
+                    Return_result=Predict_users[usr][14];
+            }
+            else if (prediction_target=="cost"){
+                if (OptionName=="exact")
+                     Return_result=Predict_users[usr][3];
+                if (OptionName=="option1")
+                    Return_result=Predict_users[usr][5];
+                if (OptionName=="option2")
+                    Return_result=Predict_users[usr][7];
+                if (OptionName=="option3")      
+                    Return_result=Predict_users[usr][9];
+                if (OptionName=="option4")
+                    Return_result=Predict_users[usr][11];
+                if (OptionName=="option5")
+                    Return_result=Predict_users[usr][13];
+                if (OptionName=="option6")
+                    Return_result=Predict_users[usr][15];
+            }
+            return(Return_result);
+  }
+      //*****************************2.Run minizinc for LNS problem****************************
+    public static Float runminizinc_Final(int customerid, int Run, int sc, String ModelType, int stagenumber, String DecisionVariable, int timeout) throws IOException {
+        //--------------------------------------with spot------------------------------------------------------------
+        
+        String URL_Minizinc_Model = "C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\" + sc + " scenarios\\" + ModelType + "";
+        String URL_Minizinc_Model_1sc = "C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\" +1 + " scenarios\\" + ModelType + "";
+
+        String Minizinc_File_Name = "mymodel_Stage" + stagenumber + ".mzn";
+       // if (stagenumber==2){
+         //  Minizinc_File_Name = "mymodel_Stage" + stagenumber + "_final.mzn";  
+        //}
+           
+        String TempSoloutionUrl = URL_Minizinc_Model + "\\LNS_TempSoloution.dzn";
+        String FinalSoloutionURL = URL_Minizinc_Model + "\\LNS_Final solutions_stage" + stagenumber + "\\LNS_FinalSoloution_User" + customerid + ".dzn";
+        String Total_Cost = "0";
+        // *****************************running the main model (spot)**********************    
+        //includefile fits with the relevant users
+        String NbresFileName = "numberofreservedvms-group" + customerid + ".dzn";
+
+        if (stagenumber == 1) {
+            String includefileURL = URL_Minizinc_Model + "\\includefile.dzn";
+            PrintStream includefileOutput = new PrintStream(new File(includefileURL));
+            includefileOutput.print("include \"Allocation-Data" + customerid + ".dzn\";  include \"" + DecisionVariable + "\";");// data of a specific user
+        }
+        if (stagenumber == 2) {
+            String includefileURL = URL_Minizinc_Model + "\\includefile_stage2.dzn";
+            PrintStream includefileOutput = new PrintStream(new File(includefileURL));
+            includefileOutput.print("include \"Allocation-Data" + customerid + ".dzn\";  include \"" +  NbresFileName + "\";  %include  \"" + DecisionVariable + "\";");// data of a specific user
+        }
+                // run vmselection model and store the number of reserved vms as an output
+        // CBC solver
+        //String[] RunModelcommand = {"cmd.exe", "/c", "cd \"C:\\Program Files (x86)\\MiniZinc 2\\bin\" && mzncmd.bat && cd \"" + URL_Minizinc_Model + "\"" + " && mzn-cbc -G linear " + Minizinc_File_Name };
+        //Gurobi solver
+        String[] RunModelcommand = {};
+        if (timeout > 0) {
+            RunModelcommand = new String[]{"cmd.exe", "/c", "cd \"C:\\Program Files (x86)\\MiniZinc 2\\bin\" && mzncmd.bat && cd \"" + URL_Minizinc_Model + "\"" + " && mzn-gurobi  -G linear " + Minizinc_File_Name + " --timeout " + timeout};
+           // RunModelcommand = new String[]{"cmd.exe", "/c", "cd \"C:\\Program Files (x86)\\MiniZinc 2\\bin\" && mzncmd.bat && cd \"" + URL_Minizinc_Model + "\"" + " && mzn-cbc  -G linear " + Minizinc_File_Name + " --timeout " + timeout};
+
+        } else if (timeout == 0) {
+            RunModelcommand = new String[]{"cmd.exe", "/c", "cd \"C:\\Program Files (x86)\\MiniZinc 2\\bin\" && mzncmd.bat && cd \"" + URL_Minizinc_Model + "\"" + " &" + Minizinc_File_Name};
+           // RunModelcommand = new String[]{"cmd.exe", "/c", "cd \"C:\\Program Files (x86)\\MiniZinc 2\\bin\" && mzncmd.bat && cd \"" + URL_Minizinc_Model + "\"" + " && mzn-cbc  -G linear " + Minizinc_File_Name };
+
+        }
+
+        ProcessBuilder RunModel = new ProcessBuilder(RunModelcommand);
+        RunModel.redirectErrorStream(true); // if this is true, the error will be shown in the output
+        Process p = RunModel.start();
+        String line;
+
+        PrintStream TempSolOut = new PrintStream(new File(TempSoloutionUrl));
+        PrintStream FinalSolOut = new PrintStream(new File(FinalSoloutionURL));
+        BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
+        String ResVmURL = URL_Minizinc_Model + "\\" + NbresFileName;
+        String ResVmURL_1sc = URL_Minizinc_Model_1sc + "\\" + NbresFileName;
+        PrintStream ResVmOutput = null;
+        PrintStream ResVmOutput_1sc = null;
+
+        if (stagenumber == 1) {
+
+            ResVmOutput = new PrintStream(new File(ResVmURL));
+            ResVmOutput_1sc = new PrintStream(new File(ResVmURL_1sc));
+        }
+        Total_Cost = r.readLine();
+
+        while (true) {
+            line = r.readLine();
+            if (line == null) {
+                break;
+            }
+            //***** store number of reserved vms into the file********
+            if (line.contentEquals("==========") || line.contentEquals("----------")) {
+                TempSolOut.print("");
+                FinalSolOut.print("");
+
+            }
+            if (line.contains("NumRES")) {
+                if (stagenumber == 1) {
+                    ResVmOutput.println(line);
+                    ResVmOutput_1sc.println(line);
+                    
+                }
+                TempSolOut.println(line);
+                FinalSolOut.println(line);
+            } else {
+                TempSolOut.println(line);
+                FinalSolOut.println(line);
+
+            }
+        }
+        TempSolOut.close();
+        FinalSolOut.close();
+        if (stagenumber == 1) {
+            ResVmOutput.close();
+            ResVmOutput_1sc.close();
+        }
+
+        System.out.println("minizinc run is completed and the total cost is: " + Total_Cost + " The soloution is stored in : " + TempSoloutionUrl);
+        //}// if stage==1 writing files
+        return Float.parseFloat(Total_Cost);
+    }
+//*****************************3.Destroy part of soloution randomly****************************
+  private static final DateFormat sdf_fun = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+  
+  public static void VMprice( String RealorRandom , String ModelType , int sc) throws FileNotFoundException, SQLException, ClassNotFoundException, IOException, WriteException {
+        String VMname1= "spotPrice_c4Large";//"spotPrice_c4Large"; 
+        double ONdemand_price1= 0.1; 
+        String VMname2= "spotPrice-c42xLarge";//spotPrice_t1micro
+        double ONdemand_price2= 0.4;
+        String URL_Minizinc_Model= "C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\"+sc+" scenarios\\" + ModelType +"";
+
+        if ( RealorRandom=="Random"){
+        // spot price -stage 1 model
+         String SpotPriceURL= URL_Minizinc_Model+"\\spotMarketCost.dzn";
+         PrintStream outputspot= new PrintStream(new File (SpotPriceURL));
+         outputspot.print("spotMarketcost= array3d(1.."+sc+" ,1..2 ,1.."+nbstages+" ,[ ");
+        // on-demand -stage 1 model
+         String OnDemandPriceURL= URL_Minizinc_Model+"\\ondemandCost.dzn";
+         PrintStream outputondemand= new PrintStream(new File (OnDemandPriceURL));
+         outputondemand.print("ondemandCost= array3d(1.."+sc+" ,1..2 ,1.."+nbstages+" ,[ ");
+        //spotinstanceAvailability:
+         String spotAvailabilityURL= URL_Minizinc_Model+"\\spotinstanceAvailability.dzn";
+         PrintStream outputspotavailability= new PrintStream(new File (spotAvailabilityURL));
+         outputspotavailability.print("spotinstanceAvailability= array3d(1.."+sc+" ,1..2 ,1.."+nbstages+" ,[ ");              
+                for (int i = 1; i <= sc ; i++) 
+                {
+                 for (int stage=1; stage<=nbstages; stage++)
+                    {           
+                        //spot price:
+                        if (SpotPrice(VMname1, stage)!=null){
+                            outputspot.print( "0.05,");//SpotPrice(VMname1, stage)+ ", " );
+                           // outputspot.print( SpotPrice(VMname1, stage)+ ", " );
+
+                        }
+                        else 
+                            outputspot.print( 100+ ", " ); 
+                        if (SpotPrice(VMname2, stage)!=null){
+                            outputspot.print(  "0.2,");//SpotPrice(VMname2, stage) + " ," );
+                            //outputspot.print(  SpotPrice(VMname2, stage) + " ," );
+
+                        }
+                        else 
+                            outputspot.print( 100+ ", " ); 
+                        
+                        outputondemand.print( ONdemand_price1+ ", " + ONdemand_price2 + " ," );
+                         //spot availability:
+                         outputspotavailability.print( 5+ ", " +5  + " ," );
+                    }
+                }
+                outputspot.println("]);");
+                outputondemand.println("]);");
+                outputspotavailability.println("]);");
+     }// end of if the cost is for the first stage
+        else if (RealorRandom == "Real")
+        { // if RealorRandom == Real then: 
+     // spot price -stage 2 model
+         String SpotPriceRollingURL=URL_Minizinc_Model+"\\spotMarketCost.dzn";
+         PrintStream outputspotRolling= new PrintStream(new File (SpotPriceRollingURL));
+         outputspotRolling.print("spotMarketcost=array3d(1.."+sc+",1..2,1.."+nbstages+",[");
+         //rolling_spotAvailability
+         String SpotAvailabilityURL=URL_Minizinc_Model+"\\spotinstanceAvailability.dzn";
+         PrintStream outputspotAvailability= new PrintStream(new File (SpotAvailabilityURL));
+         outputspotAvailability.print("spotinstanceAvailability=array3d(1.."+sc+",1..2,1.."+nbstages+",[");
+         //on-demand cost in second stage
+         String rolling_OnDemandURL=URL_Minizinc_Model+"\\ondemandCost.dzn";
+         PrintStream outputOnDemand= new PrintStream(new File (rolling_OnDemandURL));
+         outputOnDemand.print("ondemandCost=array3d(1.."+sc+",1..2,1.."+nbstages+",[");
+                for (int i = 1; i <= sc ; i++) 
+                {
+                  for (int stage=1; stage<=nbstages; stage++)
+                    {    
+                    // spot price in second stage (real prices
+                    if (SpotPrice(VMname1, stage)!=null){
+                    outputspotRolling.print( SpotPrice(VMname1, stage)+ ", " );
+                    }
+                    else 
+                        outputspotRolling.print( 100+ ", " );
+                    if (SpotPrice(VMname2, stage)!=null){
+                      outputspotRolling.print( SpotPrice(VMname2, stage)+ ", " );  
+                    }
+                     else 
+                        outputspotRolling.print( 100+ ", " );
+                            
+                    outputspotRolling.println();  
+                    //spot availability: 
+                    outputspotAvailability.print("50,50,");
+                    outputspotAvailability.println();
+                    //onDemand cost                      
+                    outputOnDemand.print(ONdemand_price1+","+ONdemand_price2+","); 
+                    outputOnDemand.println();
+                     }
+                }
+                outputspotRolling.println("]);");
+                outputspotAvailability.println("]);");
+                outputOnDemand.println("]);");
+            }
+        System.out.print( "VM prices generated sucssessfully)");
+        
+     }
+
+
+
+}
