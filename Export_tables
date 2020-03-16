@@ -1,0 +1,213 @@
+/*
+ * To change this license header, choose License Headers in Project Properties.
+ * To change this template file, choose Tools | Templates
+ * and open the template in the editor.
+ */
+package Allocation_InputData;
+
+import java.io.IOException;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.Arrays;
+import java.util.List;
+import jxl.write.WriteException;
+import java.io.IOException;
+
+
+/**
+ *
+ * @author z5038955
+ */
+
+public class ExportTables {
+     public static void main(String[] args) throws SQLException, ClassNotFoundException, IOException, WriteException {
+         Class.forName("org.postgresql.Driver");
+            Connection con = DriverManager.getConnection("jdbc:postgresql://localhost:5432/postgres", "postgres", "masimasi");
+            String queryStringCompleteUser=" "; // create complete table for each user
+            String queryStringCompleteToCSV=" "; // make a csv file of complete table user
+            String queryStringThreeTables=" "; // from the complete table make three table ( sum_table, sched_table, and Fin_tabel and make them csv files afterward)
+            String dropquerry=" ";
+            String csvtopostgresQuesrry="";
+            List<Integer> Exclude_users = Arrays.asList(8, 14, 16, 26, 27, 36, 44, 45, 47, 48, 51, 54, 56, 63, 71, 77, 83, 112, 115, 123, 125, 126, 130,
+                                            135, 138, 144, 146, 147, 151, 153, 154, 166, 176, 180, 182, 187, 193, 194, 199, 203, 216, 220, 221,
+                                            231, 233, 234, 235, 243, 245, 247, 251, 253, 259, 265, 271, 274, 278, 279, 280, 282, 284, 292, 293,
+                                            295, 296, 305, 306, 310, 317, 323, 327, 337, 338, 339, 341, 344, 346, 349, 360, 362, 368, 374, 382,
+                                            383, 384, 389, 395, 398, 402, 409, 421, 423, 424, 430, 433, 437, 438, 439, 451, 463, 474, 480, 486,
+                                            488, 493, 500, 504, 506, 507, 508, 516, 522, 537, 538, 540, 541, 549, 552, 554, 557, 564, 568, 569,
+                                            572, 587, 589, 596, 598, 605, 620, 630, 632, 638, 640, 644, 647, 655, 658, 659, 661, 665, 672, 684,
+                                            690, 696, 697, 698, 719, 724, 727, 730, 732, 734, 750, 753, 756, 771, 782, 795, 799, 803, 812, 813,
+                                            815, 816, 830, 848, 851, 857, 860, 874, 883, 889, 904, 905, 916, 917, 919, 925);
+
+
+            for(int i=500; i<=1000;i++){//   the three first querry were run for users (we have 927 users )
+                if ( !(Exclude_users.contains(i))  ) {  
+                    try{
+
+                queryStringCompleteUser= "CREATE TABLE complete_user_"+i+" AS\n" +
+                            "SELECT t1.*\n" +
+                            "FROM public.\"JavaQuerry-complete\" as t1\n" +
+                            "INNER JOIN \n" +
+                            "public.\"UserNumber\" as t2\n" +
+                            "ON t1.\"UserName\"= t2.\"UserName\"\n" +
+                            "And t2.\"UserNumber\"="+i+"";
+                queryStringCompleteToCSV =  "COPY public.complete_user_"+i+" TO 'C:/Users/z5038955/Desktop/Postgres_User_tables/complete_user_tables/user_"+i+".csv' DELIMITER ',' CSV HEADER;";
+                queryStringThreeTables= " --- a table that contains all submitted tasks:\n" +
+                                "CREATE TABLE sub_tasks_user"+i+" AS\n" +
+                                "SELECT * FROM public.complete_user_"+i+"\n" +
+                                "WHERE \"EventType\"='0'\n" +
+                                "order by \"TimeS\"; \n" +
+                                "COPY sub_tasks_user"+i+" TO 'C:/Users/z5038955/Desktop/Postgres_User_tables/complete_user_tables/seprate users tables/sub_tasks_user"+i+".csv' DELIMITER ',' CSV HEADER;\n" +
+                                "\n" +
+                                "--- a table that contains all scheduled tasks:\n" +
+                                "CREATE TABLE scheduled_tasks_user"+i+" AS\n" +
+                                "SELECT * FROM public.complete_user_"+i+"\n" +
+                                "WHERE \"EventType\"='1'\n" +
+                                "order by \"TimeS\"; \n" +
+                                "COPY scheduled_tasks_user"+i+" TO 'C:/Users/z5038955/Desktop/Postgres_User_tables/complete_user_tables/seprate users tables/scheduled_tasks_user"+i+".csv' DELIMITER ',' CSV HEADER;\n" +
+                                "\n" +
+                                "--- a table that contains all finished tasks, with any reason:\n" +
+                                "CREATE TABLE finished_tasks_user"+i+" AS\n" +
+                                "SELECT * FROM public.complete_user_"+i+"\n" +
+                                "WHERE \"EventType\"!='0' AND \"EventType\"!='1'\n" +
+                                "order by \"TimeS\";\n" +
+                                "COPY finished_tasks_user"+i+"  TO 'C:/Users/z5038955/Desktop/Postgres_User_tables/complete_user_tables/seprate users tables/finished_tasks_user"+i+".csv' DELIMITER ',' CSV HEADER;\n" +
+                                "  ";
+
+                
+                Class.forName("org.postgresql.Driver");
+                dropquerry= "DROP TABLE scheduled_tasks_user"+i+" ;\n" +
+                            "DROP TABLE sub_tasks_user"+i+" ;\n" +
+                            "DROP TABLE finished_tasks_user"+i+"; \n" +
+                            "DROP TABLE public.complete_user_"+i+";   ";
+                
+          
+                csvtopostgresQuesrry= "CREATE TABLE \"Final_user_table"+i+"\"\n" +
+                                        "(\n" +
+                                        "  \"TimeS\" bigint,\n" +
+                                        "  \"MissInfo\" integer,\n" +
+                                        "  \"FinEventType\" integer,\n" +
+                                        "  \"FinTime\"  bigint,\n" +
+                                        "  \"ScheTime\"   bigint,\n" +
+                                        "  \"JobID\" bigint,\n" +
+                                        "  \"TaskIndex\" bigint,\n" +
+                                        "  \"MachineID\" bigint,\n" +
+                                        "  \"EventType\" integer,\n" +
+                                        "  \"UserName\" character varying,\n" +
+                                        "  \"SchedClass\" integer,\n" +
+                                        "  \"Priority\" integer,\n" +
+                                        "  \"CpuReq\" double precision,\n" +
+                                        "  \"MemReq\" double precision,\n" +
+                                        "  \"DiskReq\" double precision,\n" +
+                                        "  \"MachineRes\" boolean\n" +
+                                        ");\n" +
+
+                                        "COPY \"Final_user_table"+i+"\"(\"TimeS\",\"MissInfo\",\"FinEventType\",\"FinTime\",\"ScheTime\",\"JobID\",\"TaskIndex\",\"MachineID\",\"EventType\",\"UserName\",\"SchedClass\",\"Priority\",\"CpuReq\",\"MemReq\",\"DiskReq\",\"MachineRes\") \n" +
+                                        "FROM 'C:\\Users\\z5038955\\Desktop\\Postgres_User_tables\\complete_user_tables\\Final_user_table"+i+".csv' DELIMITER ',' CSV HEADER;";
+//           queryString=" ALTER TABLE public.sub_end_user"+i+"\n" +
+//                           " DROP COLUMN \"Apptype\"";
+//queryString2 =  "COPY public.sub_end_user"+i+" TO 'C:\\Users\\z5038955\\Desktop\\Postgres_User_tables\\user"+i+".csv' DELIMITER ',' CSV HEADER;";
+//            queryString= "ALTER TABLE public.sub_end_user"+i+"\n" +
+//                       "   ADD COLUMN \"Apptype\" character(20);";
+//                queryString =  "-- Fill apptype : Single Job applications\n" +
+//                                "UPDATE public.sub_end_user"+i+"  SET \"Apptype\" = 'SingleJOB' WHERE jobid IN \n" +
+//                                "(\n" +
+//                                "SELECT  jobid \n" +
+//                                "FROM   public.sub_end_user"+i+"\n" +
+//                                "WHERE  (times>=1) \n" +
+//                                "GROUP BY jobid\n" +
+//                                "HAVING Count(taskindex)='1'\n" +
+//                                ");\n" +
+//                                "\n" +
+//                                "-- Fill apptype : Sequential Job applications\n" +
+//                                "\n" +
+//                                "UPDATE public.sub_end_user"+i+"  SET  \"Apptype\" = 'SequentialJOB' WHERE jobid IN \n" +
+//                                " (\n" +
+//                                "SELECT  jobid \n" +
+//                                "FROM public.sub_end_user"+i+"\n" +
+//                                "WHERE  (times>=1) \n" +
+//                                "GROUP BY jobid,times\n" +
+//                                "HAVING Count(taskindex)<=1\n" +
+//                                "\n" +
+//                                "EXCEPT\n" +
+//                                "-- not single task :\n" +
+//                                "SELECT  jobid\n" +
+//                                "FROM   public.sub_end_user"+i+"\n" +
+//                                "WHERE  (times>=1) \n" +
+//                                "GROUP BY jobid\n" +
+//                                "HAVING Count(taskindex)=1\n" +
+//                                ");\n" +
+//                                "\n" +
+//                                "\n" +
+//                                "UPDATE  public.sub_end_user"+i+"  SET  \"Apptype\" = 'MixJob' WHERE jobid IN \n" +
+//                                " (\n" +
+//                                " -- querry 2: Batch Application type :\n" +
+//                                "SELECT  jobid\n" +
+//                                "FROM   public.sub_end_user"+i+"\n" +
+//                                "WHERE  (times>=1) \n" +
+//                                "GROUP BY jobid, times\n" +
+//                                "HAVING Count(taskindex)>1\n" +
+//                                "\n" +
+//                                "-- if in the previous stage, it happen to anotaed as sequential: \n" +
+//                                "INTERSECT\n" +
+//                                "\n" +
+//                                " SELECT jobid\n" +
+//                                " FROM public.sub_end_user"+i+"\n" +
+//                                " WHERE   \"Apptype\" = 'SequentialJOB'\n" +
+//                                "\n" +
+//                                "EXCEPT\n" +
+//                                "\n" +
+//                                "-- not single task :\n" +
+//                                "SELECT  jobid\n" +
+//                                "FROM   public.sub_end_user"+i+"\n" +
+//                                "WHERE  (times>=1) \n" +
+//                                "GROUP BY jobid\n" +
+//                                "HAVING Count(taskindex)=1\n" +
+//                                ");\n" +
+//                                "\n" +
+//                                "-- Fill apptype:  Batch Job applications\n" +
+//                                "\n" +
+//                                "UPDATE public.sub_end_user"+i+"   SET \"Apptype\" = 'BatchJOB' WHERE jobid IN \n" +
+//                                "  (\n" +
+//                                " -- querry 2: Batch Application type :\n" +
+//                                "\n" +
+//                                "SELECT  jobid\n" +
+//                                "FROM public.sub_end_user"+i+" \n" +
+//                                "WHERE \"Apptype\" is Null );\n" +
+//                                "\n" +
+//                                "\n" +
+//                                "\n" +
+//                                "" ;
+                
+            Statement st=con.createStatement();
+          // step 1: these three queries are required to create the csv files for the python file
+           //ژst.execute(queryStringCompleteUser);
+            //st.execute(queryStringCompleteToCSV);
+            //st.execute(queryStringThreeTables);
+            
+            // this querry is not usefull anymore
+//          st.execute(queryString4);
+            // drop the temporary created tables at the end :
+//          st.execute(dropquerry);
+            // step 2: go back to python code ---- C:\Users\z5038955\Desktop\Postgres_User_tables\complete_user_tables
+            
+            // step 3: run these two querry to move csv to postgres and drop the csv
+            // after the python code created the final user table, the following script will copy it in the postgres table:
+            st.execute(csvtopostgresQuesrry);
+            // and then drop the unneccessary tables:
+            //st.execute(dropquerry);
+              } catch (SQLException e) {
+            System.out.println("Error in SQL querry nbTasks function"+ i);
+        }    
+            System.out.println(" Done user"+ i);
+            } //if condition
+     }
+                
+               
+}
+         
+     
+}
