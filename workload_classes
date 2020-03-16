@@ -1,0 +1,876 @@
+/*
+ * To change this license header, choose License Headers in Project Properties.
+ * To change this template file, choose Tools | Templates
+ * and open the template in the editor.
+ */
+package Allocation_InputData;
+
+import static Allocation_InputData.Main_Program.sc;
+import static Allocation_InputData.LNS_classes.RandomNumberInrange;
+import static Allocation_InputData.tamrin.nbstages;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.PrintStream;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Random;
+import jxl.write.WriteException;
+import java.util.Date;
+import org.joda.time.format.DateTimeFormatter;
+
+/**
+ *
+ * @author z5038955
+ */
+public class Workload_classes {
+     public static void main(String[] args) throws SQLException, ClassNotFoundException, IOException, WriteException { 
+          List<Integer> Done_users = Arrays.asList(2,3,5,6,7,11,12,15,21,23,24,28,30,31,35,38,40,53,57,64,65,66,72,73,76,78,82,85,
+        86,90,91,92,95,96,98,99,100,101,106,108,109,113,114,117,124,127,134,139,140,148,158,159,161
+        ,162,163,165,167,168,169,172,174,179,184,186,188,190,191,195,197,209,211,213,214,217,218,224,
+        230,238,242,246,249,257,260,263,267,268,269,270,272,273,275,285);
+         for (int customer =1; customer<=200 ; customer++){
+             if (Done_users.contains(customer) && (nbTasks(customer)+ Total_duration(customer)>=1500)){
+                 System.out.println("************  User "+customer +" ************"+  " ( Total_duration= "+ Total_duration(customer)+ " number of tasks:"+ nbTasks(customer)+ " )" );
+             }
+         }
+        
+     }
+     private static final DateFormat sdf = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+   // private static final DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss");
+     //-------------------------------------get actual workload : ------------------------------------------------------------------------------
+public static Object[] Realworkload(int customerid, int nbstages) throws FileNotFoundException {
+        Object[] arrayObjects = new Object[15];
+        // when number of tasks, number of rollings and number of features changed in minizinc fie, change it here as well: 
+        int arrindx = 400000;
+        int[] Time = new int[arrindx];
+        int[] TaskIndex = new int[arrindx];
+        float[] Cpu =  new float[arrindx];
+        float[] Memory =  new float[arrindx];
+        int[] duration =  new int[arrindx];
+        long[] Jobindex =  new long[arrindx];
+        String[] apptype= new String[arrindx];
+        int[] eventtype= new int[arrindx];
+        int[] WaitTime = new int[arrindx];
+        int[] ScheTime = new int[arrindx];
+        int[] FinTime = new  int[arrindx];
+        //--------------
+        try {
+            Class.forName("org.postgresql.Driver");
+            Connection con = DriverManager.getConnection("jdbc:postgresql://localhost:5432/postgres", "postgres", "masimasi");
+            String querrystring="SELECT round(MyTable.\"TimeS\"/3600000000 , 0) as Timet, MyTable.\"TaskIndex\", round(cast( MyTable.\"CpuReq\" as numeric) *16,2) as CPU ,\n" +
+                                    "round(cast( MyTable.\"MemReq\" as numeric)*60,2) as MEMSUM, (round(MyTable.\"FinTime\"/3600000000 , 0)-round(MyTable.\"ScheTime\"/3600000000 , 0)) as duration,\n" +
+                                    " MyTable.\"JobID\" , round(MyTable.\"FinTime\"/3600000000 , 0), MyTable.\"FinEventType\" as finReason , round(MyTable.\"ScheTime\"/3600000000 , 0) as Schedtime,   (round(MyTable.\"ScheTime\"/3600000000 , 0)-round(MyTable.\"TimeS\"/3600000000 , 0)) as waittime\n" +
+                                    " FROM  (SELECT *  FROM public.\"Final_user_table"+customerid+"\" \n" +
+                                    " WHERE ((round(\"FinTime\"/3600000000 , 0)-round(\"ScheTime\"/3600000000 , 0))>=1) AND  round(\"TimeS\"/3600000000 , 0)>=1  AND (round(\"TimeS\"/3600000000 , 0)<=round(\"ScheTime\"/3600000000 , 0)))   as MyTable\n" +
+                                    "ORDER BY Timet";
+            PreparedStatement queryString = con.prepareStatement(querrystring);
+                                                                                
+            ResultSet prs = queryString.executeQuery();
+            // row is the number of tasks submited!
+            int row = 1;
+            while (prs.next()) {
+                Time[row]=prs.getInt(1);
+                TaskIndex[row]= prs.getInt(2);
+                Cpu[row]=prs.getFloat(3);
+                Memory[row]=prs.getFloat(4);
+                duration[row]=prs.getInt(5);
+                Jobindex[row]=(int) prs.getLong(6) ; // error
+                FinTime[row]=prs.getInt(7);
+                apptype[row]=  "mix";//prs.getString(7); //apptype
+                eventtype[row]=prs.getInt(8);   //the reason that task finished: killed or what!
+                ScheTime[row]=prs.getInt(9);
+                WaitTime[row]=prs.getInt(10);
+                row++;
+
+            }
+                         
+        } catch (ClassNotFoundException | SQLException e) {
+            System.out.println("Error in SQL querry Realworkload function");
+        }
+        //System.out.println("user  " + customerid + " real workload done!");
+        // output:         
+        arrayObjects[0] = Time;
+        arrayObjects[1] = TaskIndex;
+        arrayObjects[2] = Cpu;        
+        arrayObjects[3] = Memory;
+        arrayObjects[4] = duration;
+        arrayObjects[5] = Jobindex; 
+        arrayObjects[6] = apptype;
+        arrayObjects[7] = eventtype; 
+        arrayObjects[8] =FinTime; // just added
+        arrayObjects[9] = ScheTime; // just added
+        arrayObjects[10] = WaitTime; // just added
+        
+        return arrayObjects;
+    }    
+//------------------------------------
+public static int nbTasks(int customerid) throws FileNotFoundException {
+        
+        int nbtasks=0;         
+        //--------------
+        try {
+            Class.forName("org.postgresql.Driver");
+            Connection con = DriverManager.getConnection("jdbc:postgresql://localhost:5432/postgres", "postgres", "masimasi");
+            PreparedStatement queryString = con.prepareStatement("SELECT  count(*)\n" +
+                                                                " FROM  (SELECT *  FROM public.\"Final_user_table"+customerid+"\" \n" +
+                                                                " WHERE ((round(\"FinTime\"/3600000000 , 0)-round(\"ScheTime\"/3600000000 , 0))>=1) AND  round(\"TimeS\"/3600000000 , 0)>=1 AND (round(\"TimeS\"/3600000000 , 0)<=round(\"ScheTime\"/3600000000 , 0)) )   as MyTable");
+            ResultSet prs = queryString.executeQuery();
+            // row is the number of tasks submited!
+           while (prs.next()) {
+               nbtasks =prs.getInt(1);
+           }
+        } catch (ClassNotFoundException | SQLException e) {
+            System.out.println("Error in SQL querry nbTasks function");
+            return(0);
+        }
+        return nbtasks;
+    }    
+//----------------------------
+public static int nbJobs(int customerid) throws FileNotFoundException {
+        
+        int nbJobs=0;         
+        //--------------
+        try {
+            Class.forName("org.postgresql.Driver");
+            Connection con = DriverManager.getConnection("jdbc:postgresql://localhost:5432/postgres", "postgres", "masimasi");
+            PreparedStatement queryString = con.prepareStatement("SELECT count(*)\n" +
+                                                                    " FROM ( SELECT MyTable.\"JobID\" FROM  \n" +
+                                                                    " (SELECT *  FROM public.\"Final_user_table"+customerid+"\" \n" +
+                                                                    " WHERE ((round(\"FinTime\"/3600000000 , 0)-round(\"ScheTime\"/3600000000 , 0))>=1) AND  round(\"TimeS\"/3600000000 , 0)>=1 AND (round(\"TimeS\"/3600000000 , 0)<=round(\"ScheTime\"/3600000000 , 0)))   as MyTable\n" +
+                                                                    " GROUP BY MyTable.\"JobID\"  )  AS nbJobs");
+            ResultSet prs = queryString.executeQuery();
+            // row is the number of tasks submited!
+           while (prs.next()) {
+               nbJobs =prs.getInt(1);
+           }
+        } catch (ClassNotFoundException | SQLException e) {
+            System.out.println("Error in SQL querry nbTasks function");
+        }
+        return nbJobs;
+    }
+///---------------------------------------------------------------------------------------------------------------------------------------------------
+// this function will returns the task data (real) for the rolling minizinc (NO SCENARIOS)
+public static void stage2AllocationData(int customerid, int nbstages, String ModelType) throws FileNotFoundException {
+    // when number of tasks, number of rollings and number of features changed in minizinc fie, change it here as well: 
+    int nbrollings = nbstages;
+    int nbfeatures = 2;
+    String URL_Minizinc_Model= "C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\"+sc+" scenarios\\" + ModelType +"";
+    String URL_to_store_the_file= URL_Minizinc_Model + "\\Allocation-Data" + customerid + ".dzn";
+    Object[] realworkload = Realworkload(customerid, nbstages);
+    int[] RealTime = (int[]) realworkload[0]; // get the data from the realworkload method! 
+    int[] RealTaskIndex = (int[]) realworkload[1]; // get the data from the realworkload method! 
+    float[] RealCpu = (float[]) realworkload[2]; // get the data from the realworkload method! 
+    float[] RealMemory = (float[]) realworkload[3]; // get the data from the realworkload method! 
+    int[] TaskDuration = (int[]) realworkload[4]; // get the data from the realworkload method! 
+    long[] JobIndex = (long[]) realworkload[5]; // get the data from the realworkload method! 
+    String[] apptype= (String[])realworkload[6];
+    int[] eventtype= (int[])realworkload[7];
+    int[] RealFinTime = (int[]) realworkload[8];
+    int[] RealSchedTime = (int[]) realworkload[9];
+    int[] RealWaitTime = (int[]) realworkload[10];
+    
+    //number of tasks:
+    int nbTasks= nbTasks(customerid);
+    int nbJobs= nbJobs(customerid);
+    String WorkloadSpotURL =URL_to_store_the_file ;
+    PrintStream outputspot = new PrintStream(new File(WorkloadSpotURL));
+    //nbjobs and ks input:
+
+    outputspot.println("nbjobs=" +nbJobs+";\n nbtasks="+nbTasks+ ";" );
+    // TaskRequirement input:
+    outputspot.print("TaskRequirement  = array2d(1..nbtasks" + ",1.." +  nbfeatures + ",[");
+    for (int stage = 1; stage <= nbTasks; stage++) {
+        outputspot.print((int)(Math.ceil( RealCpu[stage])) ); // get rid of floats
+        //outputspot.printf("%.1f", RealCpu[stage] ); // the float one floating point only 
+        outputspot.print(", " );
+        //outputspot.printf("%.1f", RealMemory[stage] );  // the float one floating point only 
+        outputspot.print((int)(Math.ceil( RealMemory[stage])) ); // get rid of floats
+        outputspot.print(", " );
+    }
+    outputspot.println("]);");
+    // JobIndex
+    outputspot.print("JobIndex  = array1d(1..nbtasks"  +",[");
+    for (int stage = 1; stage <= nbTasks; stage++) {
+            outputspot.print( JobIndex[stage] );
+            outputspot.print(", " );
+    }
+    outputspot.println("]);");
+    // SubTime 
+    outputspot.print("subTime  = array1d(1..nbtasks" +",[");
+    for (int stage = 1; stage <= nbTasks; stage++) {
+        if (RealTime[stage]<nbstages ){  
+            outputspot.print( RealTime[stage] );
+            outputspot.print(", " );
+        }else {
+          outputspot.print( 1 );
+          outputspot.print(", " );
+        }
+    }
+    outputspot.println("]);");
+     // duration 
+    outputspot.print("duration = array1d(1..nbtasks"  +",[");
+    for (int stage = 1; stage <= nbTasks; stage++) {
+        if (TaskDuration[stage]<nbstages){
+        outputspot.print( TaskDuration[stage] );
+        outputspot.print(", " );
+        }
+        else{
+        outputspot.print( nbstages-1 );
+        outputspot.print(", " ); 
+        }
+    }
+    outputspot.println("]);");
+    // deadline 
+    outputspot.print("deadline  = array1d(1..nbtasks"  +",[");
+    for (int t = 1; t <= nbTasks; t++) {
+            // if the task finished normally, 
+            if (eventtype[t]==4  ){
+                int twentypercentdeadline= RealFinTime[t]+ (int)((RealFinTime[t]-RealTime[t])*0.2);
+                if (twentypercentdeadline<=nbstages ){
+                    outputspot.print(twentypercentdeadline ); // if deadline is less than 696 return the random deadline
+                    outputspot.print(", " );
+                }
+                else if (RealFinTime[t]<=nbstages){
+                   outputspot.print(RealFinTime[t] ); // if the deadline is greater than the 696, then return the actual fintime
+                   outputspot.print(", " ); 
+                }
+                else{
+                    outputspot.print(nbstages ); // if the deadline is greater than the 696, then return the actual fintime
+                    outputspot.print(", " );
+                }
+            }
+            else// if the task did not finished sucessfully, the real finTime is the deadline for that task
+            {
+                if (RealFinTime[t]<=nbstages ){
+                    outputspot.print(RealFinTime[t] ); // if deadline is less than 696 return the fintime
+                    outputspot.print(", " );
+                }
+                else{
+                   outputspot.print(nbstages); // if the deadline is greater than  696, then return the actual fintime+1
+                   outputspot.print(", " ); 
+                }
+            }
+            }
+            outputspot.println("]);");
+            // apptype 
+            outputspot.print("AppType  = array1d(1..nbtasks"+ ",[");
+            for (int t = 1; t <= nbTasks; t++) {
+                    outputspot.print("\""+ apptype[t].replaceAll("\\s+","")+"\",");
+
+            }
+            outputspot.println("]);");
+            //System.out.println("user  " + customerid + " workload stage2 done!");
+    }
+//******************
+// this function is similar to sateg2allocation Data, but it also has scenarios! 
+public static Object[] stage1AllocationData(int customerid, int nbstages, String ModelType, int sc) throws FileNotFoundException {
+        Object[] arrayObjects = new Object[10];// output array 
+        int nbrollings = nbstages;
+        int nbfeatures = 2;
+        String URL_Minizinc_Model= "C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\"+sc+" scenarios\\" + ModelType +"";
+        String URL_to_store_the_file= URL_Minizinc_Model+"\\Allocation-Data" + customerid + ".dzn";
+            
+            // get the data from the realworkload method!
+            Object[] realworkload = Realworkload(customerid, nbstages);
+            int[]RealTime = (int[]) realworkload[0];        //  real Time
+            float[]RealCpu = (float[]) realworkload[2];     // real CPU
+            float[]RealMemory = (float[]) realworkload[3];  // real Memory
+            int[]TaskDuration = (int[]) realworkload[4];    // real Duration    
+            long[]JobIndex = (long[]) realworkload[5];      // real JobIndex
+            String[] apptype= (String[])realworkload[6];    // apptype
+            int[] eventtype= (int[])realworkload[7];        // eventtype
+            int nbTasks= nbTasks(customerid);               //number of tasks:
+            int nbJobs= nbJobs(customerid);                 //number of Jobs:
+            int[] RealFinTime = (int[]) realworkload[8];
+            int[] RealSchedTime = (int[]) realworkload[9];
+            int[] RealWaitTime = (int[]) realworkload[10];
+            int[]RealTaskIndex = (int[]) realworkload[1];   // real TaskIndex
+               //-----------------------output prep (will be useed in LNS later)------------------------
+            int[][] SubTimeArray = new int[sc+1][nbTasks+1];
+            int[][] DeadlineArray = new int[sc+1][nbTasks+1];
+            int[][] DurationArray = new int[sc+1][nbTasks+1];
+            float[][] CpuArray= new float[sc+1][nbTasks+1];
+            float[][] MemArray= new float[sc+1][nbTasks+1];
+            //------------------------------------------------------------------------------------------
+            String WorkloadSpotURL = URL_to_store_the_file;
+            PrintStream outputspot = new PrintStream(new File(WorkloadSpotURL));
+            //nbjobs and nbTasks input:
+            outputspot.println(  "nbjobs=" +nbJobs+";nbtasks="+nbTasks+ ";"+ "nbscenarios="+sc+"; nbrollling="+nbrollings +";");
+            // TaskRequirement input:
+            outputspot.print("TaskRequirement  = array3d(1.."+sc  +", 1..nbtasks" + ",1.." +  nbfeatures + ",[");
+            
+            for (int s=1; s<=sc; s++){
+            for (int t = 1; t <= nbTasks; t++) {
+                    outputspot.print((int)(Math.ceil( RealCpu[t])) );
+                    //outputspot.printf("%.1f", RealCpu[stage] );
+                    outputspot.print(", " );
+                    outputspot.print((int)(Math.ceil( RealMemory[t])) );
+                    //outputspot.printf("%.1f", RealMemory[stage] );
+                    outputspot.print(", " );
+                    CpuArray[s][t]=RealCpu[t];
+                    MemArray[s][t]=RealMemory[t];
+                }
+            }
+            outputspot.println("]);");
+            // JobIndex
+            outputspot.print("JobIndex  = array2d(1.."+sc+", 1..nbtasks"  +",[");
+            for (int s=1; s<=sc; s++){
+                for (int stage = 1; stage <= nbTasks; stage++) {
+                    outputspot.print( JobIndex[stage] );
+                    outputspot.print(", " );
+                }
+             }
+            outputspot.println("]);");
+            // SubTime 
+            outputspot.print("subTime  = array2d(1.."+sc  +",1..nbtasks" +",[");
+            for (int s=1; s<=sc; s++){
+                for (int stage = 1; stage <= nbTasks; stage++) {
+                    if (RealTime[stage]<nbstages){
+                        outputspot.print( RealTime[stage] );
+                        outputspot.print(", " );
+                        SubTimeArray[s][stage]=RealTime[stage];
+                        
+                    }
+                    else{
+                        outputspot.print( 1 );
+                        outputspot.print(", " );  
+                        SubTimeArray[s][stage]=RealTime[stage];
+                        
+                    }
+                }  
+            }
+            outputspot.println("]);");
+             // duration 
+            outputspot.print("duration = array2d(1.."+sc  +",1..nbtasks"  +",[");
+            for (int s=1; s<=sc; s++){
+                for (int t = 1; t <= nbTasks; t++) {
+                    if (TaskDuration[t]<nbstages){
+                        outputspot.print( TaskDuration[t] );
+                        outputspot.print(", " );
+                        DurationArray[s][t]=TaskDuration[t];
+                    }
+                    else{
+                        outputspot.print( nbstages-1 );
+                        outputspot.print(", " );
+                        DurationArray[s][t]=nbstages-1;
+                    }
+                }
+            }    
+            outputspot.println("]);");
+            // deadline data file:
+            outputspot.print("deadline  = array2d(1.."+sc  +",1..nbtasks"  +",[");
+            for (int s=1; s<=sc; s++){
+                 for (int t = 1; t <= nbTasks; t++) {
+                     // if the task finished normally, 
+                    if (eventtype[t]==4  ){
+                        int twentypercentdeadline= RealFinTime[t]+ (int)((RealFinTime[t]-RealTime[t])*0.2);
+                        if (twentypercentdeadline<=nbstages ){
+                            outputspot.print(twentypercentdeadline ); // if deadline is less than 696 return the random deadline
+                            outputspot.print(", " );
+                            DeadlineArray[s][t]=twentypercentdeadline ;
+                        }
+                        else if (RealFinTime[t]<=nbstages){
+                           outputspot.print(RealFinTime[t] ); // if the deadline is greater than the 696, then return the actual fintime+1
+                           outputspot.print(", " ); 
+                           DeadlineArray[s][t]=RealFinTime[t];
+                        }
+                        else {
+                           outputspot.print(nbstages ); // if the actual finished time is also greater than number of stage (696) , return nbstages then
+                           outputspot.print(", " );
+                           DeadlineArray[s][t]=nbstages;
+                        }
+                    }
+                    else
+                    {
+                         if (RealFinTime[t]<=nbstages ){
+                            outputspot.print(RealFinTime[t] ); // if the actual fini time is less then number of stages then return actual Fintime
+                            outputspot.print(", " );
+                            DeadlineArray[s][t]=RealFinTime[t];
+                        }
+                        else{
+                           outputspot.print(nbstages ); // if the Actual fin time is greater than number of stages , then return nbstages as the deadline
+                           outputspot.print(", " ); 
+                           DeadlineArray[s][t]=nbstages;
+                        }
+                    }
+                 }  
+            }outputspot.println("]);");
+            // apptype 
+            outputspot.print("AppType  = array2d(1.."+sc  +",1..nbtasks"+ ",[");
+            for (int s=1; s<=sc; s++){
+                for (int t = 1; t <= nbTasks; t++) {
+                    outputspot.print("\""+ apptype[t].replaceAll("\\s+","")+"\"," );
+                }   
+            }
+            outputspot.println("]);");
+            System.out.println("user  " + customerid + " workload stage1 is generated successfully!");
+            
+        arrayObjects[0] = SubTimeArray;  // return a two dimensional array of submission time :SubTimeArray[sc, task]
+        arrayObjects[1]=  DeadlineArray; // return a two dimensional array of deadline time :DeadlineArray[sc, task]
+        arrayObjects[2]=  DurationArray; // return a two dimensional array of duration time :DeadlineArray[sc, task]
+        arrayObjects[3]=CpuArray;
+        arrayObjects[4]=MemArray;
+        return arrayObjects;
+    }   
+
+public static Object[] stage1AllocationData_random(int customerid, int nbstages, String ModelType, int sc) throws FileNotFoundException {
+        Object[] arrayObjects = new Object[10];// output array 
+        int nbrollings = nbstages;
+        int nbfeatures = 2;
+        String URL_Minizinc_Model= "C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\"+sc+" scenarios\\" + ModelType +"";
+        String URL_to_store_the_file= URL_Minizinc_Model+"\\Allocation-Data" + customerid + ".dzn";
+        //String URL_to_store_the_file= URL_Minizinc_Model+"\\Allocation-Data_random" + customerid + ".dzn";
+
+            // get the data from the realworkload method!
+            Object[] realworkload = Realworkload(customerid, nbstages);
+            int[]RealTime = (int[]) realworkload[0];        //  real Time
+            float[]RealCpu = (float[]) realworkload[2];     // real CPU
+            float[]RealMemory = (float[]) realworkload[3];  // real Memory
+            int[]TaskDuration = (int[]) realworkload[4];    // real Duration    
+            long[]JobIndex = (long[]) realworkload[5];      // real JobIndex
+            String[] apptype= (String[])realworkload[6];    // apptype
+            int[] eventtype= (int[])realworkload[7];        // eventtype
+            int nbTasks= nbTasks(customerid);               //number of tasks:
+            int nbJobs= nbJobs(customerid);                 //number of Jobs:
+            int[] RealFinTime = (int[]) realworkload[8];
+            int[] RealSchedTime = (int[]) realworkload[9];
+            int[] RealWaitTime = (int[]) realworkload[10];
+            int[]RealTaskIndex = (int[]) realworkload[1];   // real TaskIndex
+               //-----------------------output prep (will be useed in LNS later)------------------------
+            int[][] SubTimeArray = new int[sc+1][nbTasks+1];
+            int[][] DeadlineArray = new int[sc+1][nbTasks+1];
+            int[][] DurationArray = new int[sc+1][nbTasks+1];
+            float[][] CpuArray= new float[sc+1][nbTasks+1];
+            float[][] MemArray= new float[sc+1][nbTasks+1];
+            //------------------------------------------------------------------------------------------
+            String WorkloadSpotURL = URL_to_store_the_file;
+            PrintStream outputspot = new PrintStream(new File(WorkloadSpotURL));
+            //nbjobs and nbTasks input:
+            outputspot.println(  "nbjobs=" +nbJobs+";nbtasks="+nbTasks+ ";"+ "nbscenarios="+sc+"; nbrollling="+nbrollings +";");
+            // TaskRequirement input:
+            outputspot.print("TaskRequirement  = array3d(1.."+sc  +", 1..nbtasks" + ",1.." +  nbfeatures + ",[");
+            float MaxCpu=0;
+            float Maxmem=0;
+            float MinCpu=RealCpu[1];                    
+            float MinMem=RealMemory[1] ;
+            for (int t = 1; t <= nbTasks; t++) {
+                if (RealCpu[t]>=MaxCpu)
+                    MaxCpu= RealCpu[t];
+                if (RealMemory[t]>=Maxmem)
+                    Maxmem= RealMemory[t];
+                if (RealCpu[t]<=MinCpu)
+                    MinCpu= RealCpu[t];
+                if (RealMemory[t]<=MinMem)
+                    MinMem= RealMemory[t];
+            }
+            float RandomCPU;
+            float RandomMem;
+            for (int s=1; s<=sc; s++){
+            for (int t = 1; t <= nbTasks; t++) {
+                    RandomCPU=RandomNumberInrange(Math.round(MinCpu),Math.round(MaxCpu)+1);
+                    RandomMem=RandomNumberInrange(Math.round(MinMem),Math.round(Maxmem));
+
+                    outputspot.print((int)(Math.ceil( RandomCPU)) );
+                    //outputspot.printf("%.1f", RealCpu[stage] );
+                    //System.out.println(Math.ceil(RandomCPU));
+                    outputspot.print(", " );
+                    outputspot.print((int)(Math.ceil( RandomMem)) );
+                    //outputspot.printf("RealMemory[stage] );
+                    outputspot.print(", " );
+                    CpuArray[s][t]=RandomCPU;
+                    MemArray[s][t]=RandomMem;
+                    //System.out.println(s+","+t+ CpuArray[s][t]);
+                }
+            }
+            outputspot.println("]);");
+            // JobIndex
+            outputspot.print("JobIndex  = array2d(1.."+sc+", 1..nbtasks"  +",[");
+            for (int s=1; s<=sc; s++){
+                for (int stage = 1; stage <= nbTasks; stage++) {
+                    outputspot.print( JobIndex[stage] );
+                    outputspot.print(", " );
+                }
+             }
+            outputspot.println("]);");
+            
+            // SubTime 
+            outputspot.print("subTime  = array2d(1.."+sc  +",1..nbtasks" +",[");
+            for (int s=1; s<=sc; s++){
+                for (int stage = 1; stage <= nbTasks; stage++) {
+                    if (RealTime[stage]<nbstages){
+                        outputspot.print( RealTime[stage] );
+                        outputspot.print(", " );
+                        SubTimeArray[s][stage]=RealTime[stage];
+                        
+                    }
+                    else{
+                        outputspot.print( 1 );
+                        outputspot.print(", " );  
+                        SubTimeArray[s][stage]=RealTime[stage];
+                        
+                    }
+                }  
+            }
+            outputspot.println("]);");
+             // duration 
+            outputspot.print("duration = array2d(1.."+sc  +",1..nbtasks"  +",[");
+            for (int s=1; s<=sc; s++){
+                for (int t = 1; t <= nbTasks; t++) {
+                    if (TaskDuration[t]<nbstages){
+                        outputspot.print( TaskDuration[t] );
+                        outputspot.print(", " );
+                        DurationArray[s][t]=TaskDuration[t];
+                    }
+                    else{
+                        outputspot.print( nbstages-1 );
+                        outputspot.print(", " );
+                        DurationArray[s][t]=nbstages-1;
+                    }
+                }
+            }    
+            outputspot.println("]);");
+            // deadline data file:
+            outputspot.print("deadline  = array2d(1.."+sc  +",1..nbtasks"  +",[");
+            for (int s=1; s<=sc; s++){
+                 for (int t = 1; t <= nbTasks; t++) {
+                     // if the task finished normally, 
+                    if (eventtype[t]==4  ){
+                        int twentypercentdeadline= RealFinTime[t]+ (int)((RealFinTime[t]-RealTime[t])*0.2);
+                        if (twentypercentdeadline<=nbstages ){
+                            outputspot.print(twentypercentdeadline ); // if deadline is less than 696 return the random deadline
+                            outputspot.print(", " );
+                            DeadlineArray[s][t]=twentypercentdeadline ;
+                        }
+                        else if (RealFinTime[t]<=nbstages){
+                           outputspot.print(RealFinTime[t] ); // if the deadline is greater than the 696, then return the actual fintime+1
+                           outputspot.print(", " ); 
+                           DeadlineArray[s][t]=RealFinTime[t];
+                        }
+                        else {
+                           outputspot.print(nbstages ); // if the actual finished time is also greater than number of stage (696) , return nbstages then
+                           outputspot.print(", " );
+                           DeadlineArray[s][t]=nbstages;
+                        }
+                    }
+                    else
+                    {
+                         if (RealFinTime[t]<=nbstages ){
+                            outputspot.print(RealFinTime[t] ); // if the actual fini time is less then number of stages then return actual Fintime
+                            outputspot.print(", " );
+                            DeadlineArray[s][t]=RealFinTime[t];
+                        }
+                        else{
+                           outputspot.print(nbstages ); // if the Actual fin time is greater than number of stages , then return nbstages as the deadline
+                           outputspot.print(", " ); 
+                           DeadlineArray[s][t]=nbstages;
+                        }
+                    }
+                 }  
+            }outputspot.println("]);");
+            // apptype 
+            outputspot.print("AppType  = array2d(1.."+sc  +",1..nbtasks"+ ",[");
+            for (int s=1; s<=sc; s++){
+                for (int t = 1; t <= nbTasks; t++) {
+                    outputspot.print("\""+ apptype[t].replaceAll("\\s+","")+"\"," );
+                }   
+            }
+            outputspot.println("]);");
+            outputspot.close();
+            
+            System.out.println("user ************* " + customerid + " workload stage1 is generated successfully!");
+            
+        arrayObjects[0] = SubTimeArray;  // return a two dimensional array of submission time :SubTimeArray[sc, task]
+        arrayObjects[1]=  DeadlineArray; // return a two dimensional array of deadline time :DeadlineArray[sc, task]
+        arrayObjects[2]=  DurationArray; // return a two dimensional array of duration time :DeadlineArray[sc, task]
+        arrayObjects[3]=CpuArray;
+        arrayObjects[4]=MemArray;
+        return arrayObjects;
+    }   
+  
+// this method is now only for printing the miniizinc dzn files ( scenarios):
+public static void stage1workloadRandom(int nbcustomers, int nbstages, int startcustomer) throws FileNotFoundException, SQLException, ClassNotFoundException, IOException, WriteException {
+        for (int customerid = startcustomer; customerid <= nbcustomers; customerid++) {
+            //Object[] realworkload = generatestage1workload(customerid, nbstages);
+            Object[] realworkload = Realworkload(customerid, nbstages);
+            float[]RealCpu = (float[]) realworkload[1];
+            float[]RealMemory = (float[]) realworkload[2];
+
+            String[] Model = new String[10];
+            Model[1] = "with spot";
+            Model[2] = "all on demand";
+            Model[3] = "deterministic";
+            String ModelType;
+            for (int mtype = 1; mtype <= 2; mtype++) {
+                ModelType = Model[mtype];
+                String URL_Minizinc_Model= "C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\"+sc+" scenarios\\" + ModelType +"";
+
+                String WorkloadSpotURL = URL_Minizinc_Model + ModelType + "\\data-workloadDemand-" + customerid + "with" + sc + "scenarios.dzn";
+                PrintStream outputspot = new PrintStream(new File(WorkloadSpotURL));
+                outputspot.print("workloadDemand = array3d(1.." + sc + " ,1..2 ,1.." + nbstages + ",[");
+                for (int i = 1; i <= sc; i++) {
+                    for (int stage = 1; stage <= nbstages; stage++) {
+                        Random r = new Random();
+                        int Low = 0;
+                        int High = 695;//28;
+                        int rand = r.nextInt(High - Low) + Low;
+                                       // outputspot.printf( "%.1f",  Float.parseFloat(SpotPrice(VMname1, stage)) );
+                        outputspot.printf("%.1f", RealCpu[rand] );
+                        outputspot.print(", " );
+                        outputspot.printf("%.1f", RealMemory[rand] );
+                        outputspot.println(", " );
+                    }
+                    outputspot.println();
+                }
+                outputspot.println("]);");
+            }
+            System.out.println("user  " + customerid + "  ,workload (Random version) written successfully!");
+        }
+
+    }
+public static void runminizinc(int customerid, int Run,  int nbstages, String ModelType, int stagenumber) throws IOException {
+        //--------------------------------------with spot------------------------------------------------------------
+       String URL_Minizinc_Model= "C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\"+sc+" scenarios\\" + ModelType +""; 
+       String Minizinc_File_Name="mymodel_Stage"+stagenumber+".mzn" ;
+        // *****************************running the main model (spot)**********************    
+            //includefile fits with the relevant users
+            String includefileURL = URL_Minizinc_Model + "\\includefile.dzn";
+            PrintStream includefileOutput = new PrintStream(new File(includefileURL));
+            if (stagenumber==1){                
+                includefileOutput.print( "include \"Allocation-Data"+customerid+".dzn\";" );// data of a specific user
+                
+                // run vmselection model and store the number of reserved vms as an output
+                String[] RunModelcommand = {"cmd.exe", "/c", "cd \"C:\\Program Files (x86)\\MiniZinc 2\\bin\" && mzncmd.bat && cd \"" + URL_Minizinc_Model + "\"" + " && mzn-cbc -G linear " + Minizinc_File_Name };
+                ProcessBuilder RunModel = new ProcessBuilder(RunModelcommand);
+                RunModel.redirectErrorStream(true); // if this is true, the error will be shown in the output
+                Process p = RunModel.start();
+                String NbresURL= URL_Minizinc_Model+"\\numberofreservedvms-group" + customerid + ".dzn";
+                PrintStream nbresoutput = new PrintStream(new File(NbresURL));
+                BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
+                String line;
+            while (true) {
+                line = r.readLine();
+                if (line == null) {
+                    break;
+                }
+                //***** store number of reserved vms into the file********
+                    nbresoutput.print(line);
+                }
+            }
+            
+            if  (stagenumber==2){ 
+                includefileOutput.print( "include \"Allocation-Data"+customerid+".dzn\";"+ "include \"numberofreservedvms-group" + customerid + ".dzn\";"  );// data of a specific user
+                String ResultURL = "C:\\Users\\z5038955\\Desktop\\MinizincAllocation_Results\\" + nbstages + "Stage-" + ModelType + "\\resultgroup" + customerid + "with " + sc + "scenarios" + "run" + Run + ".txt";
+                PrintStream mainoutput = new PrintStream(new File(ResultURL));
+                // run vmselection model and store the number of reserved vms as an output
+                String[] RunModelcommand = {"cmd.exe", "/c", "cd \"C:\\Program Files (x86)\\MiniZinc 2\\bin\" && mzncmd.bat && cd \"" + URL_Minizinc_Model + "\"" + " && mzn-cbc -G linear " + Minizinc_File_Name };
+                ProcessBuilder RunModel = new ProcessBuilder(RunModelcommand);
+                // result file inside the minizinc folder
+                //String outputURL= URL_Minizinc_Model+"\\FinalResult-group" + customerid + ".txt";
+                //PrintStream output = new PrintStream(new File(outputURL));
+
+                RunModel.redirectErrorStream(true); // if this is true, the error will be shown in the output
+                Process p = RunModel.start();
+                BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
+                String line;
+                while (true) {
+                 line = r.readLine();
+                    if (line == null) {
+                        break;
+                    }
+                mainoutput.print(line);
+                mainoutput.println("");
+                //output.print(line);
+            }
+            }
+            
+
+            System.out.println("minizinc model for group " + customerid + "done!");
+
+    }
+    //Random or Real
+public static void VMprice( String RealorRandom , String ModelType ) throws FileNotFoundException, SQLException, ClassNotFoundException, IOException, WriteException {
+        String VMname1= "spotPrice_c4Large";//"spotPrice_c4Large"; 
+        double ONdemand_price1= 0.1; 
+        String VMname2= "spotPrice-c42xLarge";//spotPrice_t1micro
+        double ONdemand_price2= 0.4;
+        String URL_Minizinc_Model= "C:\\Users\\z5038955\\Desktop\\Minizinc_Allocation\\"+sc+" scenarios\\" + ModelType +"";
+
+        if ( RealorRandom=="Random"){
+        // spot price -stage 1 model
+         String SpotPriceURL= URL_Minizinc_Model+"\\spotMarketCost.dzn";
+         PrintStream outputspot= new PrintStream(new File (SpotPriceURL));
+         outputspot.print("spotMarketcost= array3d(1.."+sc+" ,1..2 ,1.."+nbstages+" ,[ ");
+        // on-demand -stage 1 model
+         String OnDemandPriceURL= URL_Minizinc_Model+"\\ondemandCost.dzn";
+         PrintStream outputondemand= new PrintStream(new File (OnDemandPriceURL));
+         outputondemand.print("ondemandCost= array3d(1.."+sc+" ,1..2 ,1.."+nbstages+" ,[ ");
+        //spotinstanceAvailability:
+         String spotAvailabilityURL= URL_Minizinc_Model+"\\spotinstanceAvailability.dzn";
+         PrintStream outputspotavailability= new PrintStream(new File (spotAvailabilityURL));
+         outputspotavailability.print("spotinstanceAvailability= array3d(1.."+sc+" ,1..2 ,1.."+nbstages+" ,[ ");              
+                for (int i = 1; i <= sc ; i++) 
+                {
+                 for (int stage=1; stage<=nbstages; stage++)
+                    {           
+                        //spot price:
+                        if (SpotPrice(VMname1, stage)!=null){
+                            outputspot.print( SpotPrice(VMname1, stage)+ ", " );
+                        }
+                        else 
+                            outputspot.print( 100+ ", " ); 
+                        if (SpotPrice(VMname2, stage)!=null){
+                            outputspot.print(  SpotPrice(VMname2, stage) + " ," );
+                        }
+                        else 
+                            outputspot.print( 100+ ", " ); 
+                        
+                        outputondemand.print( ONdemand_price1+ ", " + ONdemand_price2 + " ," );
+                         //spot availability:
+                         outputspotavailability.print( 100+ ", " + 100 + " ," );
+                    }
+                }
+                outputspot.println("]);");
+                outputondemand.println("]);");
+                outputspotavailability.println("]);");
+     }// end of if the cost is for the first stage
+        else if (RealorRandom == "Real")
+        { // if RealorRandom == Real then: 
+     // spot price -stage 2 model
+         String SpotPriceRollingURL=URL_Minizinc_Model+"\\spotMarketCost.dzn";
+         PrintStream outputspotRolling= new PrintStream(new File (SpotPriceRollingURL));
+         outputspotRolling.print("spotMarketcost=array3d(1.."+sc+",1..2,1.."+nbstages+",[");
+         //rolling_spotAvailability
+         String SpotAvailabilityURL=URL_Minizinc_Model+"\\spotinstanceAvailability.dzn";
+         PrintStream outputspotAvailability= new PrintStream(new File (SpotAvailabilityURL));
+         outputspotAvailability.print("spotinstanceAvailability=array3d(1.."+sc+",1..2,1.."+nbstages+",[");
+         //on-demand cost in second stage
+         String rolling_OnDemandURL=URL_Minizinc_Model+"\\ondemandCost.dzn";
+         PrintStream outputOnDemand= new PrintStream(new File (rolling_OnDemandURL));
+         outputOnDemand.print("ondemandCost=array3d(1.."+sc+",1..2,1.."+nbstages+",[");
+                for (int i = 1; i <= sc ; i++) 
+                {
+                  for (int stage=1; stage<=nbstages; stage++)
+                    {    
+                    // spot price in second stage (real prices
+                    if (SpotPrice(VMname1, stage)!=null){
+                    outputspotRolling.print( SpotPrice(VMname1, stage)+ ", " );
+                    }
+                    else 
+                        outputspotRolling.print( 100+ ", " );
+                    if (SpotPrice(VMname2, stage)!=null){
+                      outputspotRolling.print( SpotPrice(VMname2, stage)+ ", " );  
+                    }
+                     else 
+                        outputspotRolling.print( 100+ ", " );
+                            
+                    outputspotRolling.println();  
+                    //spot availability: 
+                    outputspotAvailability.print("50,50,");
+                    outputspotAvailability.println();
+                    //onDemand cost                      
+                    outputOnDemand.print(ONdemand_price1+","+ONdemand_price2+","); 
+                    outputOnDemand.println();
+                     }
+                }
+                outputspotRolling.println("]);");
+                outputspotAvailability.println("]);");
+                outputOnDemand.println("]);");
+            }
+        System.out.print( "VM prices generated sucssessfully)");
+        
+     }
+     
+public static String SpotPrice(String VMname, int index ) throws FileNotFoundException, IOException
+  {
+      String readFileUrl= "C:\\Users\\z5038955\\Desktop\\"+VMname+".txt";
+        List<String> spotlines;                               
+        BufferedReader spotreader = new BufferedReader(new FileReader(readFileUrl));
+        spotlines = new ArrayList<>();
+        String line = null;
+         String[] SpotCost=new String[800000];
+
+        int hour=0;
+        while ((line = spotreader.readLine() ) != null)
+        {
+           spotlines.add(line) ;
+           String[] words =  line.split("\\s+");
+           SpotCost[hour]= words[4];
+           hour++;
+        } 
+        
+      return   SpotCost[index]; 
+      
+  }
+   public static float Amazon_Lambda_Price(int customerid, String ModelType ) throws FileNotFoundException, IOException
+  {    
+      Object[] realworkload = Realworkload(customerid, nbstages);
+        float[] CPU = (float[]) realworkload[2];     // real CPU
+        float[] Memory = (float[]) realworkload[3];  // real Memory
+        int[] duration = (int[]) realworkload[4];    // real Duration    
+      
+      int nbtsks=nbTasks(customerid); 
+      double MemPrice= 0.00001667; // memory price per gigabyte
+      double ReqPrice= 0.2; // Request price per 1000m request
+      float Request_price=0;
+      float Memory_req=0;
+      float total_cost=0;
+      float Memory_cost=0;
+      
+      for (int t=1; t<=nbtsks; t++){
+          Memory_req= Memory_req+( Memory[t]*duration[t]);
+      }
+      //The monthly compute price is $0.00001667 per GB-s and the free tier provides 400,000 GB-s.
+      // But I am not considering this free Gb tier, since probabely the user has used its free tier before
+      //if (Memory_req>400000){
+      //Memory_cost= (float) ((Memory_req- 400000)*MemPrice);
+      //}
+     Memory_cost= (float) (Memory_req*MemPrice);
+      //The monthly request price is $0.20 per 1 million requests and the free tier provides 1M requests per month.
+     //I am not considering this free option as well, because I  assuming that the user is an active user, who more likely had used his free tier previously
+      //if (nbtsks>1000){
+       //  float Req=(nbtsks/1000)-1;
+        // Request_price=(float) (Req*ReqPrice);
+      //}
+     Request_price=(float) (nbtsks*ReqPrice);
+      total_cost=Request_price+ Memory_cost;
+      return(total_cost);
+    }
+  
+     
+    public static int Total_duration(int customerid) throws FileNotFoundException {
+        Object[] realworkload = Realworkload(customerid, nbstages);
+            int[] Duration = (int[]) realworkload[4];        //  real Time
+            int len= Duration.length;
+            int tot_duration=0;
+            for (int i=0; i<len;i++){
+               tot_duration += Duration[i];  
+            }
+        return tot_duration;
+        
+    }  
+     public static int Avg_duration(int customerid) throws FileNotFoundException {
+        Object[] realworkload = Realworkload(customerid, nbstages);
+            int[] Duration = (int[]) realworkload[4];        //  real Time
+            int len= Duration.length;
+            int tot_duration=0;
+            for (int i=0; i<len;i++){
+               tot_duration += Duration[i];  
+            }
+        return (tot_duration/len);
+        
+    }  
+  
+     
+}
